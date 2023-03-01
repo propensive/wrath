@@ -1,8 +1,9 @@
 #!/bin/bash
 
 export JAVA_HOME=/home/propensive/.local/share/oubliette/dist/20-jdk
-mkdir -p bin dist .cache
+mkdir -p bin dist .cache log
 
+root="$(realpath one)"
 run="0"
 
 if [[ "$1" = "-t" ]]
@@ -19,90 +20,45 @@ scalac="/home/propensive/pub/dotty/bin/scalac"
 scala="/home/propensive/pub/dotty/bin/scala"
 
 declare -A links
-declare -A cp
 declare -A built
+declare -A hashes
+declare -A lib
 
+OLDIFS="$IFS"
+IFS=$'\n'
 
-links[ambience/core]='rudiments/core anticipation/file'
-links[acyclicity/core]='gossamer/core'
-links[adversaria/core]='rudiments/core'
-links[aviation/core]='eucalyptus/core cardinality/core kaleidoscope/core'
-links[caesura/core]='wisteria/core gossamer/core'
-links[cosmopolite/core]='gossamer/core'
-links[chiaroscuro/core]='dissonance/core dendrology/core escritoire/core'
-links[contextual/core]='deviation/core'
-links[cataclysm/core]='gossamer/core iridescence/core anticipation/css anticipation/html'
-links[cellulose/core]='eucalyptus/core chiaroscuro/core kaleidoscope/core polyvinyl/core'
-links[dendrology/core]='gossamer/core'
-links[deviation/core]='rudiments/core'
-links[dissonance/core]='eucalyptus/core'
-links[diuretic/core]='anticipation/file anticipation/url anticipation/time'
-links[escapade/core]='gossamer/core iridescence/core'
-links[exoskeleton/core]='galilei/core ambience/core profanity/core'
-links[profanity/core]='eucalyptus/core'
-links[harlequin/core]='gossamer/core kaleidoscope/core'
-links[hyperbole/core]='harlequin/core escapade/core escritoire/core dendrology/core'
-links[galilei/core]='deviation/core serpentine/core eucalyptus/core'
-links[imperial/core]='anticipation/file deviation/core ambience/core'
-links[escritoire/core]='hieronymus/core escapade/core'
-links[oubliette/core]='guillotine/core galilei/core imperial/core'
-links[eucalyptus/core]='escapade/core'
-links[gastronomy/core]='gossamer/core'
-links[gesticulate/core]='gossamer/core anticipation/html'
-links[honeycomb/core]='gossamer/core anticipation/html anticipation/css'
-links[guillotine/core]='eucalyptus/core ambience/core'
-links[gossamer/core]='turbulence/core wisteria/core contextual/core'
-links[hieronymus/core]='kaleidoscope/core'
-links[iridescence/core]='cardinality/core deviation/core contextual/core'
-links[kaleidoscope/core]='gossamer/core'
-links[parasitism/core]='deviation/core anticipation/time'
-links[probably/core]='eucalyptus/core escritoire/core chiaroscuro/core gossamer/core'
-links[probably/cli]='probably/core'
-links[polyvinyl/core]='rudiments/core'
-links[rudiments/core]='anticipation/http'
-links[telekinesis/client]='gastronomy/core gesticulate/core telekinesis/url eucalyptus/core'
-links[telekinesis/url]='serpentine/core escapade/core'
-links[serpentine/core]='gossamer/core anticipation/html'
-links[scintillate/server]='telekinesis/client'
-links[punctuation/core]='gossamer/core'
-links[quantify/core]='gossamer/core'
-links[surveillance/core]='anticipation/file eucalyptus/core serpentine/core'
-links[scintillate/servlet]='scintillate/server'
-links[turbulence/core]='parasitism/core diuretic/core'
-links[wisteria/core]='deviation/core'
-links[xylophone/core]='wisteria/core gossamer/core'
-links[jacinta/core]='wisteria/core gossamer/core merino/core'
-links[merino/core]='gossamer/core'
-links[tarantula/core]='jacinta/core telekinesis/client guillotine/core cataclysm/core honeycomb/core'
+for line in $(cat links | grep -v '^#')
+do
+  m="$(echo "$line" | cut -d: -f1)"
+  d=$(echo "$line" | cut -d$'\t' -f2)
+  links[$m]="$d"
+done
+IFS="$OLDIFS"
 
-links[dissonance/test]='probably/cli dissonance/core'
-links[gossamer/test]='probably/cli gossamer/core'
-
-
-checksum() {
+setChecksum() {
   local dir="$1"
-  find $dir -name '*.scala' | xargs md5sum | sort | md5sum | cut -d' ' -f1
-}
-
-classpath() {
-  local id="$1"
-  if [ "${cp[$id]}" = "" ]
-  then
-    local buildLinks=("$(echo "${links[$id]}" | tr ' ' '\n')")
-    for lnk in $buildLinks
-    do
-      classpath "$lnk" | sort | uniq
-      echo "dist/$(echo "$lnk" | sed s./.-.).jar"
-    done
-  else
-    for entry in ${cp[$id]}
-    do echo $entry
-    done
+  if [ "${hashes[$dir]}" = "" ]
+  then hashes["$1"]="$(find $dir -name '*.scala' | xargs md5sum | sort | md5sum | cut -d' ' -f1)"
   fi
 }
 
+
 mkclasspath() {
-  classpath "$1" | tr '\n' ':'
+  local id="$1"
+  local acc=""
+  if [ "${lib[$id]}" = "" ]
+  then
+    local buildLinks=("$(echo "${links[$id]}" | tr ' ' '\n')")
+    for lnk in $buildLinks
+    do mkclasspath "$lnk"
+    done
+
+    for lnk in $buildLinks
+    do acc="$acc dist/$(echo $lnk | sed 's./.-.').jar ${lib[$lnk]}"
+    done
+    local dedup="$(echo $acc | tr ' ' '\n' | sort | uniq | tr '\n' ' ')"
+    lib[$id]="$dedup"
+  fi
 }
 
 build() {
@@ -115,21 +71,25 @@ build() {
     for lnk in $buildLinks
     do build "$lnk"
     done
-    local src="../one/mod/$mod/src/$submod"
+    local src="$root/$mod/src/$submod"
     
     local chksum="$(cat ".cache/$id" 2>/dev/null)"
-    if [ ! "$chksum" = "$(checksum $src)" ]
+    setChecksum "$src"
+    if [ ! "$chksum" = "${hashes[$src]}" ]
     then
       echo -n "Compiling $id..."
       mkdir -p bin/$mod/$submod
-      if [ -d "../one/mod/$mod/res" ]
+      if [ -d "$root/$mod/res" ]
       then
-        for res in $(ls ../one/mod/$mod/res)
-        do cp -r ../one/mod/$mod/res/$res bin/$mod/$submod/
+        for res in $(ls $root/$mod/res)
+        do cp -r $root/$mod/res/$res bin/$mod/$submod/
         done
       fi
+      mkclasspath "$id"
+      classpath="$(echo "${lib[$id]}" | sed 's/ /:/g')"
+      rm -f "log/$mod/$submod.log"
       $scalac \
-        -classpath "$(mkclasspath $id)" \
+        -classpath "$classpath" \
         -d bin/$mod/$submod \
         -Xmax-inlines 64 \
         -feature \
@@ -145,16 +105,22 @@ build() {
         -language:experimental.erasedDefinitions \
         -language:experimental.saferExceptions \
         -language:experimental.namedTypeArguments \
-        $src/*.scala && mkdir -p ".cache/$mod" && checksum "$src" > ".cache/$id" && built[$id]="1" && \
+        $src/*.scala > "log/$mod-$submod.log" 2>&1 && \
+	        mkdir -p ".cache/$mod" && \
+	        echo ${hashes[$src]} > ".cache/$id" && \
+	        built[$id]="1" && \
           jar cf "dist/$mod-$submod.jar" $(for inc in $(ls bin/$mod/$submod); do echo "-C bin/$mod/$submod $inc"; done) || exit 1
+	    cat "log/$mod-$submod.log"
       echo "done"
     fi
   fi
 }
 
-build "$1"
+build "$build"
 if [ ! "$run" = "0" ]
 then
-  $scala \
-    -classpath "$(mkclasspath $1)dist/$module-$submodule.jar" $run
+  mkclasspath "$build"
+  classpath="$(echo "${lib[$build]}" | sed 's/ /:/g')"
+
+  $scala -classpath "${classpath}dist/$module-$submodule.jar" $run
 fi
