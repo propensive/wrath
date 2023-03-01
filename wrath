@@ -21,6 +21,7 @@ scala="$(realpath scala)/bin/scala"
 
 declare -A links
 declare -A built
+declare -A pids
 declare -A hashes
 declare -A lib
 
@@ -42,15 +43,14 @@ setChecksum() {
   fi
 }
 
-
-mkclasspath() {
+classpath() {
   local id="$1"
   local acc=""
   if [ "${lib[$id]}" = "" ]
   then
     local buildLinks=("$(echo "${links[$id]}" | tr ' ' '\n')")
     for lnk in $buildLinks
-    do mkclasspath "$lnk"
+    do classpath "$lnk"
     done
 
     for lnk in $buildLinks
@@ -67,51 +67,63 @@ build() {
   local submod="$(echo $id | cut -d/ -f2)"
   if [ ! "${built[$id]}" = "1" ]
   then
-    local buildLinks=("$(echo "${links[$id]}" | tr ' ' '\n')")
-    for lnk in $buildLinks
-    do build "$lnk"
-    done
-    local src="$root/$mod/src/$submod"
-    
-    local chksum="$(cat ".wrath/cache/$id" 2>/dev/null)"
-    setChecksum "$src"
-    if [ ! "$chksum" = "${hashes[$src]}" ]
+    if [ "${pids[$id]}" = "" ]
     then
-      echo -n "Compiling $id..."
-      mkdir -p .wrath/bin/$mod/$submod
-      if [ -d "$root/$mod/res" ]
+      local buildLinks=("$(echo "${links[$id]}" | tr ' ' '\n')")
+      for lnk in $buildLinks
+      do build "$lnk"
+      done
+      
+      for lnk in $buildLinks
+      do
+        if [ ! "${pids[$lnk]}" = "" ]
+        then wait "${pids[$lnk]}"
+        fi
+      done
+
+      local src="$root/$mod/src/$submod"
+      
+      local chksum="$(cat ".wrath/cache/$id" 2>/dev/null)"
+      setChecksum "$src"
+      if [ ! "$chksum" = "${hashes[$src]}" ]
       then
-        for res in $(ls $root/$mod/res)
-        do cp -r $root/$mod/res/$res .wrath/bin/$mod/$submod/
-        done
+        echo "Starting compilation of $id..."
+        mkdir -p .wrath/bin/$mod/$submod
+        if [ -d "$root/$mod/res" ]
+        then
+          for res in $(ls $root/$mod/res)
+          do cp -r $root/$mod/res/$res .wrath/bin/$mod/$submod/
+          done
+        fi
+        classpath "$id"
+        classpath="$(echo "${lib[$id]}" | sed 's/ /:/g')"
+        rm -f ".wrath/log/$mod/$submod.log"
+        ($scalac \
+          -classpath "$classpath" \
+          -d .wrath/bin/$mod/$submod \
+          -Xmax-inlines 64 \
+          -feature \
+          -J-Xss1536K \
+          -J--enable-preview \
+          -new-syntax \
+          -Yrequire-targetName \
+          -Ysafe-init \
+          -Yexplicit-nulls \
+          -Ycheck-all-patmat \
+          -language:experimental.clauseInterleaving \
+          -language:experimental.fewerBraces \
+          -language:experimental.erasedDefinitions \
+          -language:experimental.saferExceptions \
+          -language:experimental.namedTypeArguments \
+          $src/*.scala > ".wrath/log/$mod-$submod.log" 2>&1 && \
+	          mkdir -p ".wrath/cache/$mod" && \
+	          echo ${hashes[$src]} > ".wrath/cache/$id" && \
+	          built[$id]="1" && \
+            echo "Finished compilation of $id" && \
+            jar cf "dist/$mod-$submod.jar" $(for inc in $(ls .wrath/bin/$mod/$submod); do echo "-C .wrath/bin/$mod/$submod $inc"; done) || exit 1) &
+            pids[$id]="$!"
+	      cat ".wrath/log/$mod-$submod.log"
       fi
-      mkclasspath "$id"
-      classpath="$(echo "${lib[$id]}" | sed 's/ /:/g')"
-      rm -f ".wrath/log/$mod/$submod.log"
-      $scalac \
-        -classpath "$classpath" \
-        -d .wrath/bin/$mod/$submod \
-        -Xmax-inlines 64 \
-        -feature \
-        -J-Xss1536K \
-        -J--enable-preview \
-        -new-syntax \
-        -Yrequire-targetName \
-        -Ysafe-init \
-        -Yexplicit-nulls \
-        -Ycheck-all-patmat \
-        -language:experimental.clauseInterleaving \
-        -language:experimental.fewerBraces \
-        -language:experimental.erasedDefinitions \
-        -language:experimental.saferExceptions \
-        -language:experimental.namedTypeArguments \
-        $src/*.scala > ".wrath/log/$mod-$submod.log" 2>&1 && \
-	        mkdir -p ".wrath/cache/$mod" && \
-	        echo ${hashes[$src]} > ".wrath/cache/$id" && \
-	        built[$id]="1" && \
-          jar cf "dist/$mod-$submod.jar" $(for inc in $(ls .wrath/bin/$mod/$submod); do echo "-C .wrath/bin/$mod/$submod $inc"; done) || exit 1
-	    cat ".wrath/log/$mod-$submod.log"
-      echo "done"
     fi
   fi
 }
@@ -119,7 +131,7 @@ build() {
 build "$build"
 if [ ! "$run" = "0" ]
 then
-  mkclasspath "$build"
+  classpath "$build"
   classpath="$(echo "${lib[$build]}" | sed 's/ /:/g')"
 
   $scala -classpath "${classpath}dist/$module-$submodule.jar" $run
