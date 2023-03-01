@@ -1,0 +1,57 @@
+acyclicity/core:	gossamer/core
+adversaria/core:	rudiments/core
+ambience/core:	rudiments/core anticipation/file
+aviation/core:	eucalyptus/core cardinality/core kaleidoscope/core
+caesura/core:	wisteria/core gossamer/core
+cataclysm/core:	gossamer/core iridescence/core anticipation/css anticipation/html
+cellulose/core:	eucalyptus/core chiaroscuro/core kaleidoscope/core polyvinyl/core
+chiaroscuro/core:	dissonance/core dendrology/core escritoire/core
+contextual/core:	deviation/core
+cosmopolite/core:	gossamer/core
+dendrology/core:	gossamer/core
+deviation/core:	rudiments/core
+dissonance/core:	eucalyptus/core
+diuretic/core:	anticipation/file anticipation/url anticipation/time
+escapade/core:	gossamer/core iridescence/core
+escritoire/core:	hieronymus/core escapade/core
+eucalyptus/core:	escapade/core
+exoskeleton/core:	galilei/core ambience/core profanity/core
+galilei/core:	deviation/core serpentine/core eucalyptus/core
+gastronomy/core:	gossamer/core
+gesticulate/core:	gossamer/core anticipation/html
+gossamer/core:	turbulence/core wisteria/core contextual/core
+guillotine/core:	eucalyptus/core ambience/core
+harlequin/core:	gossamer/core kaleidoscope/core
+hieronymus/core:	kaleidoscope/core
+honeycomb/core:	gossamer/core anticipation/html anticipation/css
+hyperbole/core:	harlequin/core escapade/core escritoire/core dendrology/core
+imperial/core:	anticipation/file deviation/core ambience/core
+iridescence/core:	cardinality/core deviation/core contextual/core
+jacinta/core:	wisteria/core gossamer/core merino/core
+kaleidoscope/core:	gossamer/core
+merino/core:	gossamer/core
+oubliette/core:	guillotine/core galilei/core imperial/core
+parasitism/core:	deviation/core anticipation/time
+polyvinyl/core:	rudiments/core
+probably/cli:	probably/core
+probably/core:	eucalyptus/core escritoire/core chiaroscuro/core gossamer/core
+profanity/core:	eucalyptus/core
+punctuation/core:	gossamer/core
+quantify/core:	gossamer/core
+rudiments/core:	anticipation/http
+scintillate/server:	telekinesis/client
+scintillate/servlet:	scintillate/server
+serpentine/core:	gossamer/core anticipation/html
+surveillance/core:	anticipation/file eucalyptus/core serpentine/core
+tarantula/core:	jacinta/core telekinesis/client guillotine/core cataclysm/core honeycomb/core
+telekinesis/client:	gastronomy/core gesticulate/core telekinesis/url eucalyptus/core
+telekinesis/url:	serpentine/core escapade/core
+turbulence/core:	parasitism/core diuretic/core
+wisteria/core:	deviation/core
+xylophone/core:	wisteria/core gossamer/core
+
+dissonance/test:	probably/cli dissonance/core
+guillotine/test:	probably/cli guillotine/core
+gossamer/test:	probably/cli gossamer/core
+
+# vim:ts=22
