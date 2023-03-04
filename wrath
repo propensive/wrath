@@ -1,111 +1,232 @@
 #!/bin/bash
 
-export JAVA_HOME=/home/propensive/.local/share/oubliette/dist/20-jdk
-mkdir -p .wrath/bin dist .wrath/cache .wrath/log
-
-root="$(realpath one)"
-run="0"
-
-if [[ "$1" = "-t" ]]
-then
-  run="$2"
-  shift
-  shift
-fi
-
-build="$1"
-module="$(echo $build | cut -d/ -f1)"
-submodule="$(echo $build | cut -d/ -f2)"
-scalac="$(realpath scala)/bin/scalac"
-scala="$(realpath scala)/bin/scala"
-
-declare -A links
+declare -A refs
 declare -A built
 declare -A pids
 declare -A hashes
 declare -A lib
+declare run
+declare fetch
+declare scala
+declare scalac
+declare compiler
+compiler="$(realpath scala)"
 
-OLDIFS="$IFS"
-IFS=$'\n'
-
-for line in $(cat .wrath/dependencies | grep -v '^#')
-do
-  m="$(echo "$line" | cut -d: -f1)"
-  d=$(echo "$line" | cut -d$'\t' -f2)
-  links[$m]="$d"
-done
-IFS="$OLDIFS"
-
-setChecksum() {
-  local dir="$1"
-  if [ "${hashes[$dir]}" = "" ]
-  then hashes["$1"]="$(find $dir -name '*.scala' | xargs md5sum | sort | md5sum | cut -d' ' -f1)"
+nonempty() {
+  if [ "$2" = "" ]
+  then
+    echo "The option $1 requires a parameter."
+    exit 1
   fi
 }
 
+showHelp() {
+  cat << EOF
+Usage: wrath [options]
+Builds a project with Wrath.
+
+Options:
+  -c, --clean              clean the target project
+  -C, --deep-clean         clean all targets
+  -f, --fetch              automatically fetch missing dependencies
+  -F, --fetch-all          automatically fetch missing dependencies and compiler
+  -g, --group <group>      use the default group <group>
+  -h, --help               show this help message
+  -j, --jdk <path>         use the JDK with home directory at <path>
+  -r, --run <class>        run the main class <class>
+  -t, --target <target>    target to compile
+
+Examples:
+  wrath -t rudiments/core
+  wrath -C -g propensive -t rudiments/core -F
+
+© Copyright 2023 Jon Pretty & Propensive OÜ
+EOF
+  exit 0
+}
+
+fetch() {
+  local group repo
+  group="$1"
+  repo="$2"
+  git clone -q "git@github.com:$group/$repo" "$repo"
+}
+
+clean() {
+  case "$clean" in
+    1)
+      echo "Cleaning $target..."
+      rm -rf ".wrath/bin/$target" ".wrath/cache/$target" ".wrath/log/$target"
+      ;;
+    2)
+      echo "Cleaning everything..."
+      rm -rf .wrath/bin .wrath/cache .wrath/log .wrath/plugin
+      ;;
+  esac
+}
+
+checkCompiler() {
+  if [ ! -d "scala" ]
+  then
+    if [ "$fetch" = "2" ]
+    then fetch lampepfl dotty && mv dotty scala
+    else
+      echo "Scala compiler not found."
+      echo "Try again with -F or create a symlink to a clone of the lampepfl/dotty repository."
+      exit 1
+    fi
+  fi
+  scala="$compiler/bin/scala"
+  scalac="$compiler/bin/scalac"
+}
+
+mkdirs() {
+  mkdir -p .wrath/bin dist .wrath/cache .wrath/log .wrath/plugins
+}
+
+setChecksum() {
+  local dir
+  dir="$1"
+  if [ "${hashes[$dir]}" = "" ]
+  then hashes[$dir]="$(md5sum $dir/*.scala | md5sum | cut -d' ' -f1)"
+  fi
+}
+
+readToml() {
+  local file module lineNo IFS
+  
+  IFS=$'\n'
+  file="$1"
+  lineNo=0
+  
+  while read -r line
+  do
+    lineNo=$((lineNo+1))
+    case "$line" in
+      '['*']')
+        module="${line:1:-1}"
+        ;;
+      '')
+        ;;
+      'refs = '*)
+        if [ "$module" = "" ]
+        then
+          echo "Invalid configuration at line $lineNo:"
+          echo "$line"
+	  exit 1
+        else
+          refs[$module]="${line:7}"
+        fi
+        ;;
+      *)
+        echo "Invalid configuration at line $lineNo:"
+        echo "$line"
+	exit 1
+	;;
+    esac
+  done < "$file"
+}
+
 classpath() {
-  local id="$1"
-  local acc=""
+  local IFS dedup id acc dependencies
+  declare -a acc
+  id="$1"
+  echo "classpath($id)"
+  
+  IFS=' '
   if [ "${lib[$id]}" = "" ]
   then
-    local buildLinks=("$(echo "${links[$id]}" | tr ' ' '\n')")
-    for lnk in $buildLinks
-    do classpath "$lnk"
+    read -ra dependencies <<< "${refs[$id]}"
+    for ref in "${dependencies[@]}"
+    do classpath "$ref"
     done
 
-    for lnk in $buildLinks
-    do acc="$acc dist/$(echo $lnk | sed 's./.-.').jar ${lib[$lnk]}"
+    for ref in "${dependencies[@]}"
+    do
+      acc+="dist/"${ref}".jar"
+      acc+="${lib[$ref]}"
     done
-    local dedup="$(echo $acc | tr ' ' '\n' | sort | uniq | tr '\n' ' ')"
+    dedup="$(echo "$acc" | tr ' ' '\n' | sort | uniq | tr '\n' ' ')"
     lib[$id]="$dedup"
   fi
 }
 
 build() {
-  local id="$1"
-  local mod="$(echo $id | cut -d/ -f1)"
-  local submod="$(echo $id | cut -d/ -f2)"
+  local IFS id mod submod root
+  
+  id="$1"
+  mod="$(echo "$id" | cut -d/ -f1)"
+  submod="$(echo "$id" | cut -d/ -f2)"
+  root="$(realpath "$mod")"
+  IFS=' '
+  
+  if [ ! -d "$root" ]
+  then
+    if [ ! "$fetch" = "" ]
+    then fetch propensive "$mod"
+    else
+      echo "Module $mod not found"
+      echo "Try again with -f or create a symlink to $root."
+      exit 1
+    fi
+  fi
+
+  if [ ! -e "$root"/build.wrath ]
+  then 
+    echo "Build file $root/build.wrath does not exist"
+    exit 1
+  else
+    echo "Reading $mod/build.wrath"
+    readToml "$root"/build.wrath
+  fi
+  
   if [ ! "${built[$id]}" = "1" ]
   then
     if [ "${pids[$id]}" = "" ]
     then
-      local buildLinks=("$(echo "${links[$id]}" | tr ' ' '\n')")
-      for lnk in $buildLinks
-      do build "$lnk"
+      read -ra dependencies <<< "${refs[$id]}"
+      for ref in "${dependencies[@]}"
+      do
+        build "$ref"
       done
       
-      for lnk in $buildLinks
+      for ref in "${dependencies[@]}"
       do
-        if [ ! "${pids[$lnk]}" = "" ]
-        then wait "${pids[$lnk]}"
+        if [ ! "${pids[$ref]}" = "" ]
+        then wait "${pids[$ref]}"
         fi
       done
 
-      local src="$root/$mod/src/$submod"
+
+      local src="$root/src/$submod"
       
-      local chksum="$(cat ".wrath/cache/$id" 2>/dev/null)"
+      local chksum="$(cat .wrath/cache/"$id" 2>/dev/null)"
       setChecksum "$src"
       if [ ! "$chksum" = "${hashes[$src]}" ]
       then
-        echo "Starting compilation of $id..."
-        mkdir -p .wrath/bin/$mod/$submod
-        if [ -d "$root/$mod/res" ]
+        echo "Compiling $id..."
+        mkdir -p .wrath/bin/"$mod"/"$submod"
+        if [ -d "$root/res" ]
         then
-          for res in $(ls $root/$mod/res)
-          do cp -r $root/$mod/res/$res .wrath/bin/$mod/$submod/
+          for res in $(ls "$root"/res)
+          do cp -r "$root"/res/"$res" .wrath/bin/"$mod"/"$submod"/
           done
         fi
         classpath "$id"
-        classpath="$(echo "${lib[$id]}" | sed 's/ /:/g')"
+        classpath="${lib[$id]// /:}"
+	echo "with classpath=${classpath}"
         rm -f ".wrath/log/$mod/$submod.log"
         ($scalac \
-          -classpath "$classpath" \
-          -d .wrath/bin/$mod/$submod \
+          -classpath "${classpath}" \
+          -d .wrath/bin/"$mod"/"$submod" \
           -Xmax-inlines 64 \
+          -Xpluginsdir .wrath/plugins \
           -feature \
           -J-Xss1536K \
           -J--enable-preview \
           -new-syntax \
+          -source future \
+          -Wunused:imports \
           -Yrequire-targetName \
           -Ysafe-init \
           -Yexplicit-nulls \
@@ -115,24 +236,97 @@ build() {
           -language:experimental.erasedDefinitions \
           -language:experimental.saferExceptions \
           -language:experimental.namedTypeArguments \
-          $src/*.scala > ".wrath/log/$mod-$submod.log" 2>&1 && \
-	          mkdir -p ".wrath/cache/$mod" && \
-	          echo ${hashes[$src]} > ".wrath/cache/$id" && \
-	          built[$id]="1" && \
-            echo "Finished compilation of $id" && \
-            jar cf "dist/$mod-$submod.jar" $(for inc in $(ls .wrath/bin/$mod/$submod); do echo "-C .wrath/bin/$mod/$submod $inc"; done) || exit 1) &
-            pids[$id]="$!"
-	      cat ".wrath/log/$mod-$submod.log"
+          "$src"/*.scala > .wrath/log/"$mod"-"$submod".log 2>&1 && \
+                  mkdir -p .wrath/cache/"$mod" && \
+                  echo "${hashes[$src]}" > .wrath/cache/"$id" && \
+                  built[$id]="1" && \
+            echo "Compiled $id" && \
+            cat ".wrath/log/$mod-$submod.log" && \
+            jar cf dist/"$mod"-"$submod".jar $(for inc in $(ls .wrath/bin/"$mod"/"$submod"); do echo -C .wrath/bin/$mod/$submod $inc ; done) || (cat .wrath/log/"$mod"-"$submod".log ; exit 1)) &
+        pids[$id]="$!"
+        touch .wrath/log/"$mod"-"$submod".log
+        cat .wrath/log/"$mod"-"$submod".log
+        if [ -f "$root"/res/plugin.properties ]
+        then cp dist/"$mod"-"$submod".jar .wrath/plugins/"$mod"-"$submod".jar
+        fi
       fi
     fi
   fi
 }
 
-build "$build"
-if [ ! "$run" = "0" ]
-then
-  classpath "$build"
-  classpath="$(echo "${lib[$build]}" | sed 's/ /:/g')"
+parseOpts() {
+  while [[ $# -gt 0 ]]
+  do
+    case "$1" in
+      -r|--run)
+        nonempty "$@"
+        run="$2"
+        shift 2 ;;
+      -j|--jdk)
+        nonempty "$@"
+        export JAVA_HOME="$2"
+        shift 2 ;;
+      -g|--group)
+        group="$2"
+        shift 2 ;;
+      -h|--help)
+        showHelp
+        ;;
+      -s|--scala)
+        nonempty "$@"
+        compiler="$2"
+        shift 2 ;;
+      -c|--clean)
+        clean="1"
+        shift 1 ;;
+      -C|--deep-clean)
+        clean="2"
+        shift 1 ;;
+      -f|--fetch)
+        fetch="1"
+        shift 1 ;;
+      -F|--fetch-alll)
+        fetch="2"
+        shift 1 ;;
+      -t|--target)
+        target="$2"
+        shift 2 ;;
+      -*)
+        echo "Unrecognized option: '$1'"
+        exit 1 ;;
+      *)
+        echo "Unrecognized parameter: '$1"
+        exit 1 ;;
+    esac
+  done
+}
 
-  $scala -classpath "${classpath}dist/$module-$submodule.jar" $run
+checkTarget() {
+  if [[ "$target" = "" ]]
+  then
+    echo "A build target is required"
+    exit 1
+  fi
+}
+
+parseOpts "$@"
+
+
+clean
+checkCompiler
+mkdirs
+
+module="$(echo "$target" | cut -d/ -f1)"
+component="$(echo "$target" | cut -d/ -f2)"
+
+readToml build.wrath
+
+build "$target"
+wait
+if [ ! "$run" = "" ]
+then
+  classpath "$target"
+  classpath="${lib[$target]// /:}"
+
+  "$scala" -classpath "${classpath}"dist/"$module"-"$component".jar "$run"
 fi
