@@ -50,11 +50,11 @@ fetch() {
 clean() {
   case "$clean" in
     1)
-      message "$module" "$component" "Cleaning..."
+      message "$module" "$component" "Cleaning"
       rm -rf ".wrath/bin/$target" ".wrath/cache/$target" ".wrath/log/$target"
       ;;
     2)
-      message "$module" "$component" "Cleaning everything..."
+      message "$module" "$component" "Cleaning everything"
       rm -rf .wrath/bin .wrath/cache .wrath/log .wrath/plugin
       ;;
   esac
@@ -193,7 +193,9 @@ build() {
   if [ ! -d "$root" ]
   then
     if [ ! "$fetch" = "" ]
-    then fetch propensive "$buildModule"
+    then
+      message "$buildModule" "$buildComponent" "Cloning Git repository"
+      fetch propensive "$buildModule"
     else
       message "$buildModule" "$buildComponent" "Module $buildModule not found"
       message "$buildModule" "$buildComponent" "Try again with -f or create a symlink to $root."
@@ -243,7 +245,7 @@ build() {
         classpath "$id"
         classpath="${lib[$id]// /:}"
         rm -f ".wrath/log/$buildModule/$buildComponent.log"
-        compile "$buildModule" "$buildComponent" "$classpath" "$src" &
+        compile "$buildModule" "$buildComponent" "$classpath" "$src"
         pids[$id]="$!"
         
 	if [ -f "$root"/res/plugin.properties ]
@@ -261,7 +263,7 @@ compile() {
   buildModule="$1"
   buildComponent="$2"
   classpath="$3"
-  pageWidth=$((COLS - 21))
+  pageWidth=$((COLUMNS - 21))
   srcDir="$4"
 
   opts=(
