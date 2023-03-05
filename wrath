@@ -1,8 +1,9 @@
 #!/bin/bash
 
 declare -g -A refs built parsed pids hashes lib
-declare -g run fetch scala scalac compiler
+declare -g run fetch scala scalac compiler repl esc
 
+esc=$'\e'
 compiler="$(realpath scala)"
 
 nonempty() {
@@ -26,8 +27,9 @@ Options:
   -g, --group <group>      use the default group <group>
   -h, --help               show this help message
   -j, --jdk <path>         use the JDK with home directory at <path>
-  -r, --run <class>        run the main class <class>
+  -r, --repl               start the REPL
   -t, --target <target>    target to compile
+  -x, --exec <class>       run the main class <class>
 
 Examples:
   wrath -t rudiments/core
@@ -48,11 +50,11 @@ fetch() {
 clean() {
   case "$clean" in
     1)
-      echo "Cleaning $target..."
+      message "$module" "$component" "Cleaning..."
       rm -rf ".wrath/bin/$target" ".wrath/cache/$target" ".wrath/log/$target"
       ;;
     2)
-      echo "Cleaning everything..."
+      message "$module" "$component" "Cleaning everything..."
       rm -rf .wrath/bin .wrath/cache .wrath/log .wrath/plugin
       ;;
   esac
@@ -102,17 +104,20 @@ package() {
 }
 
 readToml() {
-  local file module IFS isMain
+  local file dir module IFS isMain buildModule buildComponent
   local -i lineNo
   
   IFS=$'\n'
-  file="$1"
-  isMain="$2"
+  buildModule="$1"
+  buildComponent="$2"
+  file="$3"
+  dir="$(dirname $(realpath --relative-to="$PWD" "$file"))"
+  isMain="$4"
   lineNo=0
   
   if [ ! "${parsed[$file]}" = "1" ]
   then
-    echo "Reading $file"
+    message "$buildModule" "$buildComponent" "Reading buildfile in ${dir}/"
     while read -r line
     do
       lineNo=$((lineNo+1))
@@ -130,16 +135,16 @@ readToml() {
         'refs = '*)
           if [ "$module" = "" ]
           then
-            echo "Invalid configuration at line $lineNo:"
-            echo "$line"
+            message "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo:"
+            message "$buildModule" "$buildComponent" "$line"
             exit 1
           else
             refs[$module]="${line:7}"
           fi
           ;;
         *)
-          echo "Invalid configuration at line $lineNo:"
-          echo "$line"
+          message "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo:"
+          message "$buildModule" "$buildComponent" "$line"
           exit 1
           ;;
       esac
@@ -190,18 +195,18 @@ build() {
     if [ ! "$fetch" = "" ]
     then fetch propensive "$buildModule"
     else
-      echo "Module $buildModule not found"
-      echo "Try again with -f or create a symlink to $root."
+      message "$buildModule" "$buildComponent" "Module $buildModule not found"
+      message "$buildModule" "$buildComponent" "Try again with -f or create a symlink to $root."
       exit 1
     fi
   fi
 
   if [ ! -e "$root"/build.wrath ]
   then 
-    echo "Build file $root/build.wrath does not exist"
+    message "$buildModule" "$buildComponent" "Build file $root/build.wrath does not exist"
     exit 1
   else
-    readToml "$root"/build.wrath
+    readToml "$buildModule" "$buildComponent" "$root"/build.wrath
   fi
   
   if [ ! "${built[$id]}" = "1" ]
@@ -227,12 +232,12 @@ build() {
       setChecksum "$src"
       if [ ! "$chksum" = "${hashes[$src]}" ]
       then
-        echo "Compiling $id..."
+        message "$buildModule" "$buildComponent" "Compiling with Scala"
         mkdir -p .wrath/bin/"$buildModule"/"$buildComponent"
         if [ -d "$root/res" ]
         then
           for res in "$root"/res/*
-          do cp -r "$root"/res/"$res" .wrath/bin/"$buildModule"/"$buildComponent"/
+          do cp -r "$res" .wrath/bin/"$buildModule"/"$buildComponent"/
           done
         fi
         classpath "$id"
@@ -240,9 +245,8 @@ build() {
         rm -f ".wrath/log/$buildModule/$buildComponent.log"
         compile "$buildModule" "$buildComponent" "$classpath" "$src" &
         pids[$id]="$!"
-        touch .wrath/log/"$buildModule"-"$buildComponent".log
-        cat .wrath/log/"$buildModule"-"$buildComponent".log
-        if [ -f "$root"/res/plugin.properties ]
+        
+	if [ -f "$root"/res/plugin.properties ]
         then cp dist/"$buildModule"-"$buildComponent".jar .wrath/plugins/"$buildModule"-"$buildComponent".jar
         fi
       fi
@@ -252,18 +256,21 @@ build() {
 
 compile() {
   local classpath buildModule buildComponent srcDir
+  local -i pageWidth
   local -a opts
   buildModule="$1"
   buildComponent="$2"
   classpath="$3"
+  pageWidth=$((COLS - 21))
   srcDir="$4"
 
   opts=(
-    -classpath "${classpath}"
+    -classpath "$classpath"
     -d .wrath/bin/"$buildModule"/"$buildComponent"
     -Xmax-inlines 64
     -Xpluginsdir .wrath/plugins
     -feature
+    -pagewidth "$pageWidth"
     -J-Xss1536K
     -J--enable-preview
     -new-syntax
@@ -279,43 +286,46 @@ compile() {
     -language:experimental.saferExceptions
     -language:experimental.namedTypeArguments
   )
- 
+
+  rm -f .wrath/log/"$buildModule"-"$buildComponent".log
+  touch ".wrath/log/$buildModule-$buildComponent.log"
   if $scalac "${opts[@]}" "$srcDir"/*.scala > .wrath/log/"$buildModule"-"$buildComponent".log 2>&1
   then
     mkdir -p .wrath/cache/"$buildModule"
     echo "${hashes[$src]}" > .wrath/cache/"$id"
     built[$id]="1"
-    echo "Compiled $id"
-    cat ".wrath/log/$buildModule-$buildComponent.log"
+    message "$buildModule" "$buildComponent" "Compiled $id"
+    
+    while read -r line
+    do message "$buildModule" "$buildComponent" "$line"
+    done < .wrath/log/"$buildModule"-"$buildComponent".log
+
     package dist/"$buildModule"-"$buildComponent".jar .wrath/bin/"$buildModule"/"$buildComponent"
   else
-    cat ".wrath/log/$buildModule-$buildComponent.log"
+    message "$buildModule" "$buildComponent" "Compilation failed"
+    
+    while read -r line
+    do message "$buildModule" "$buildComponent" "$line"
+    done < .wrath/log/"$buildModule"-"$buildComponent".log
+    
     exit 1
   fi
+}
+
+message() {
+  local module component text prefix spaces
+  local -i padding length
+  module="$1"
+  component="$2"
+  text="$3"
+  prefix="$esc[0;36m$module$esc[2;37m/$esc[1;34m$component$esc[2;37m:$esc[0m"
+  printf "%52s %s\n" "$prefix" "$text"
 }
 
 parseOpts() {
   while [[ $# -gt 0 ]]
   do
     case "$1" in
-      -r|--run)
-        nonempty "$@"
-        run="$2"
-        shift 2 ;;
-      -j|--jdk)
-        nonempty "$@"
-        export JAVA_HOME="$2"
-        shift 2 ;;
-      -g|--group)
-        group="$2"
-        shift 2 ;;
-      -h|--help)
-        showHelp
-        ;;
-      -s|--scala)
-        nonempty "$@"
-        compiler="$2"
-        shift 2 ;;
       -c|--clean)
         clean="1"
         shift 1 ;;
@@ -328,8 +338,29 @@ parseOpts() {
       -F|--fetch-alll)
         fetch="2"
         shift 1 ;;
+      -g|--group)
+        group="$2"
+        shift 2 ;;
+      -h|--help)
+        showHelp
+        ;;
+      -j|--jdk)
+        nonempty "$@"
+        export JAVA_HOME="$2"
+        shift 2 ;;
+      -r|--repl)
+        repl="1"
+	shift ;;
+      -s|--scala)
+        nonempty "$@"
+        compiler="$2"
+        shift 2 ;;
       -t|--target)
         target="$2"
+        shift 2 ;;
+      -x|--exec)
+        nonempty "$@"
+        run="$2"
         shift 2 ;;
       -*)
         echo "Unrecognized option: '$1'"
@@ -351,15 +382,15 @@ checkTarget() {
 
 parseOpts "$@"
 
+module="$(echo "$target" | cut -d/ -f1)"
+component="$(echo "$target" | cut -d/ -f2)"
+
+readToml "$module" "$component" "build.wrath" 1
 
 clean
 checkCompiler
 mkdirs
 
-module="$(echo "$target" | cut -d/ -f1)"
-component="$(echo "$target" | cut -d/ -f2)"
-
-readToml build.wrath 1
 
 build "$target"
 wait
@@ -367,6 +398,12 @@ if [ ! "$run" = "" ]
 then
   classpath "$target"
   classpath="${lib[$target]// /:}"
-
   "$scala" -classpath "${classpath}"dist/"$module"-"$component".jar "$run"
+fi
+
+if [ "$repl" = "1" ]
+then
+  classpath "$target"
+  classpath="${lib[$target]// /:}"
+  "$scala" -classpath "${classpath}"dist/"$module"-"$component".jar
 fi
