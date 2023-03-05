@@ -111,7 +111,7 @@ readToml() {
   buildModule="$1"
   buildComponent="$2"
   file="$3"
-  dir="$(dirname $(realpath --relative-to="$PWD" "$file"))"
+  dir="$(dirname "$(realpath --relative-to="$PWD" "$file")")"
   isMain="$4"
   lineNo=0
   
@@ -313,12 +313,11 @@ compile() {
 }
 
 message() {
-  local module component text prefix spaces
-  local -i padding length
+  local module component text prefix
   module="$1"
   component="$2"
   text="$3"
-  prefix="$esc[0;36m$module$esc[2;37m/$esc[1;34m$component$esc[2;37m:$esc[0m"
+  prefix="${esc}[0;36m$module${esc}[2;37m/${esc}[1;34m$component${esc}[2;37m:${esc}[0m"
   printf "%52s %s\n" "$prefix" "$text"
 }
 
