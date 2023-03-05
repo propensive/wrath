@@ -1,15 +1,8 @@
 #!/bin/bash
 
-declare -A refs
-declare -A built
-declare -A pids
-declare -A hashes
-declare -A lib
-declare run
-declare fetch
-declare scala
-declare scalac
-declare compiler
+declare -g -A refs built parsed pids hashes lib
+declare -g run fetch scala scalac compiler
+
 compiler="$(realpath scala)"
 
 nonempty() {
@@ -49,7 +42,7 @@ fetch() {
   local group repo
   group="$1"
   repo="$2"
-  git clone -q "git@github.com:$group/$repo" "$repo"
+  git clone -q git@github.com:"$group"/"$repo" "$repo"
 }
 
 clean() {
@@ -76,8 +69,8 @@ checkCompiler() {
       exit 1
     fi
   fi
-  scala="$compiler/bin/scala"
-  scalac="$compiler/bin/scalac"
+  scala="$compiler"/bin/scala
+  scalac="$compiler"/bin/scalac
 }
 
 mkdirs() {
@@ -88,52 +81,79 @@ setChecksum() {
   local dir
   dir="$1"
   if [ "${hashes[$dir]}" = "" ]
-  then hashes[$dir]="$(md5sum $dir/*.scala | md5sum | cut -d' ' -f1)"
+  then hashes[$dir]="$(md5sum "$dir"/*.scala | md5sum | cut -d' ' -f1)"
   fi
 }
 
+package() {
+  local dir file
+  local -a args
+  local -i len
+  jarFile="$1"
+  dir="$2"
+  len="${#dir}"
+  len=$((len + 1))
+  for include in "$dir"/*
+  do
+    file="${include:$len}"
+    args+=(-C "$dir" "$file")
+  done
+  jar cf "${jarFile}" "${args[@]}"
+}
+
 readToml() {
-  local file module lineNo IFS
+  local file module IFS isMain
+  local -i lineNo
   
   IFS=$'\n'
   file="$1"
+  isMain="$2"
   lineNo=0
   
-  while read -r line
-  do
-    lineNo=$((lineNo+1))
-    case "$line" in
-      '['*']')
-        module="${line:1:-1}"
-        ;;
-      '')
-        ;;
-      'refs = '*)
-        if [ "$module" = "" ]
-        then
+  if [ ! "${parsed[$file]}" = "1" ]
+  then
+    echo "Reading $file"
+    while read -r line
+    do
+      lineNo=$((lineNo+1))
+      case "$line" in
+        '['*'/'*']')
+          module="${line:1:-1}"
+          ;;
+        '['*']')
+	  if [ "$isMain" = "1" ]
+	  then main="${line:1:-1}"
+	  fi
+	  ;;
+        '')
+          ;;
+        'refs = '*)
+          if [ "$module" = "" ]
+          then
+            echo "Invalid configuration at line $lineNo:"
+            echo "$line"
+            exit 1
+          else
+            refs[$module]="${line:7}"
+          fi
+          ;;
+        *)
           echo "Invalid configuration at line $lineNo:"
           echo "$line"
-	  exit 1
-        else
-          refs[$module]="${line:7}"
-        fi
-        ;;
-      *)
-        echo "Invalid configuration at line $lineNo:"
-        echo "$line"
-	exit 1
-	;;
-    esac
-  done < "$file"
+          exit 1
+          ;;
+      esac
+    done < "$file"
+    parsed[$file]="1"
+  fi
 }
 
 classpath() {
-  local IFS dedup id acc dependencies
-  declare -a acc
+  local IFS id
+  local -a acc dependencies dedup
   id="$1"
-  echo "classpath($id)"
-  
   IFS=' '
+  
   if [ "${lib[$id]}" = "" ]
   then
     read -ra dependencies <<< "${refs[$id]}"
@@ -143,29 +163,34 @@ classpath() {
 
     for ref in "${dependencies[@]}"
     do
-      acc+="dist/"${ref}".jar"
-      acc+="${lib[$ref]}"
+      acc+=(dist/"${ref//\//-}".jar)
+      acc+=("${lib[$ref]}")
     done
-    dedup="$(echo "$acc" | tr ' ' '\n' | sort | uniq | tr '\n' ' ')"
+    dedup="$(echo "${acc[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
     lib[$id]="$dedup"
   fi
 }
 
 build() {
-  local IFS id mod submod root
+  local IFS id buildModule buildComponent root src chksum
   
   id="$1"
-  mod="$(echo "$id" | cut -d/ -f1)"
-  submod="$(echo "$id" | cut -d/ -f2)"
-  root="$(realpath "$mod")"
+  buildModule="$(echo "$id" | cut -d/ -f1)"
+  buildComponent="$(echo "$id" | cut -d/ -f2)"
+  
+  if [ "$buildModule" = "$main" ]
+  then root="$(realpath .)"
+  else root="$(realpath "$buildModule")"
+  fi
+  
   IFS=' '
   
   if [ ! -d "$root" ]
   then
     if [ ! "$fetch" = "" ]
-    then fetch propensive "$mod"
+    then fetch propensive "$buildModule"
     else
-      echo "Module $mod not found"
+      echo "Module $buildModule not found"
       echo "Try again with -f or create a symlink to $root."
       exit 1
     fi
@@ -176,7 +201,6 @@ build() {
     echo "Build file $root/build.wrath does not exist"
     exit 1
   else
-    echo "Reading $mod/build.wrath"
     readToml "$root"/build.wrath
   fi
   
@@ -198,59 +222,75 @@ build() {
       done
 
 
-      local src="$root/src/$submod"
-      
-      local chksum="$(cat .wrath/cache/"$id" 2>/dev/null)"
+      src="$root/src/$buildComponent"
+      chksum="$(cat .wrath/cache/"$id" 2>/dev/null)"
       setChecksum "$src"
       if [ ! "$chksum" = "${hashes[$src]}" ]
       then
         echo "Compiling $id..."
-        mkdir -p .wrath/bin/"$mod"/"$submod"
+        mkdir -p .wrath/bin/"$buildModule"/"$buildComponent"
         if [ -d "$root/res" ]
         then
-          for res in $(ls "$root"/res)
-          do cp -r "$root"/res/"$res" .wrath/bin/"$mod"/"$submod"/
+          for res in "$root"/res/*
+          do cp -r "$root"/res/"$res" .wrath/bin/"$buildModule"/"$buildComponent"/
           done
         fi
         classpath "$id"
         classpath="${lib[$id]// /:}"
-	echo "with classpath=${classpath}"
-        rm -f ".wrath/log/$mod/$submod.log"
-        ($scalac \
-          -classpath "${classpath}" \
-          -d .wrath/bin/"$mod"/"$submod" \
-          -Xmax-inlines 64 \
-          -Xpluginsdir .wrath/plugins \
-          -feature \
-          -J-Xss1536K \
-          -J--enable-preview \
-          -new-syntax \
-          -source future \
-          -Wunused:imports \
-          -Yrequire-targetName \
-          -Ysafe-init \
-          -Yexplicit-nulls \
-          -Ycheck-all-patmat \
-          -language:experimental.clauseInterleaving \
-          -language:experimental.fewerBraces \
-          -language:experimental.erasedDefinitions \
-          -language:experimental.saferExceptions \
-          -language:experimental.namedTypeArguments \
-          "$src"/*.scala > .wrath/log/"$mod"-"$submod".log 2>&1 && \
-                  mkdir -p .wrath/cache/"$mod" && \
-                  echo "${hashes[$src]}" > .wrath/cache/"$id" && \
-                  built[$id]="1" && \
-            echo "Compiled $id" && \
-            cat ".wrath/log/$mod-$submod.log" && \
-            jar cf dist/"$mod"-"$submod".jar $(for inc in $(ls .wrath/bin/"$mod"/"$submod"); do echo -C .wrath/bin/$mod/$submod $inc ; done) || (cat .wrath/log/"$mod"-"$submod".log ; exit 1)) &
+        rm -f ".wrath/log/$buildModule/$buildComponent.log"
+        compile "$buildModule" "$buildComponent" "$classpath" "$src" &
         pids[$id]="$!"
-        touch .wrath/log/"$mod"-"$submod".log
-        cat .wrath/log/"$mod"-"$submod".log
+        touch .wrath/log/"$buildModule"-"$buildComponent".log
+        cat .wrath/log/"$buildModule"-"$buildComponent".log
         if [ -f "$root"/res/plugin.properties ]
-        then cp dist/"$mod"-"$submod".jar .wrath/plugins/"$mod"-"$submod".jar
+        then cp dist/"$buildModule"-"$buildComponent".jar .wrath/plugins/"$buildModule"-"$buildComponent".jar
         fi
       fi
     fi
+  fi
+}
+
+compile() {
+  local classpath buildModule buildComponent srcDir
+  local -a opts
+  buildModule="$1"
+  buildComponent="$2"
+  classpath="$3"
+  srcDir="$4"
+
+  opts=(
+    -classpath "${classpath}"
+    -d .wrath/bin/"$buildModule"/"$buildComponent"
+    -Xmax-inlines 64
+    -Xpluginsdir .wrath/plugins
+    -feature
+    -J-Xss1536K
+    -J--enable-preview
+    -new-syntax
+    -source future
+    -Wunused:imports
+    -Yrequire-targetName
+    -Ysafe-init
+    -Yexplicit-nulls
+    -Ycheck-all-patmat
+    -language:experimental.clauseInterleaving
+    -language:experimental.fewerBraces
+    -language:experimental.erasedDefinitions
+    -language:experimental.saferExceptions
+    -language:experimental.namedTypeArguments
+  )
+ 
+  if $scalac "${opts[@]}" "$srcDir"/*.scala > .wrath/log/"$buildModule"-"$buildComponent".log 2>&1
+  then
+    mkdir -p .wrath/cache/"$buildModule"
+    echo "${hashes[$src]}" > .wrath/cache/"$id"
+    built[$id]="1"
+    echo "Compiled $id"
+    cat ".wrath/log/$buildModule-$buildComponent.log"
+    package dist/"$buildModule"-"$buildComponent".jar .wrath/bin/"$buildModule"/"$buildComponent"
+  else
+    cat ".wrath/log/$buildModule-$buildComponent.log"
+    exit 1
   fi
 }
 
@@ -319,7 +359,7 @@ mkdirs
 module="$(echo "$target" | cut -d/ -f1)"
 component="$(echo "$target" | cut -d/ -f2)"
 
-readToml build.wrath
+readToml build.wrath 1
 
 build "$target"
 wait
