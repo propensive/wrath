@@ -59,8 +59,7 @@ fetch() {
   local repo
   repo="$1"
   
-  echo git clone -q git@github.com:"${group[$repo]}"/"$repo" "$repo"
-  git clone -q git@github.com:"${group[$repo]}"/"$repo" "$repo"
+  git clone -q https://github.com/"${group[$repo]}"/"$repo" "$repo"
 }
 
 clean() {
