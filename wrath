@@ -15,9 +15,10 @@
 #   and limitations under the License.
 #
 
-declare -g -A refs built parsed pids hashes lib
+declare -g -A refs built parsed pids hashes lib group sources
 declare -g run fetch scala scalac compiler repl esc
 
+group[dotty]="lampepfl"
 esc=$'\e'
 compiler="$(realpath scala)"
 
@@ -39,7 +40,6 @@ Options:
   -C, --deep-clean         clean all targets
   -f, --fetch              automatically fetch missing dependencies
   -F, --fetch-all          automatically fetch missing dependencies and compiler
-  -g, --group <group>      use the default group <group>
   -h, --help               show this help message
   -j, --jdk <path>         use the JDK with home directory at <path>
   -r, --repl               start the REPL
@@ -48,7 +48,7 @@ Options:
 
 Examples:
   wrath -t rudiments/core
-  wrath -C -g propensive -t rudiments/core -F
+  wrath -C -t rudiments/core -F
 
 © Copyright 2023 Jon Pretty & Propensive OÜ
 EOF
@@ -56,10 +56,11 @@ EOF
 }
 
 fetch() {
-  local group repo
-  group="$1"
-  repo="$2"
-  git clone -q https://github.com/"$group"/"$repo" "$repo"
+  local repo
+  repo="$1"
+  
+  echo git clone -q git@github.com:"${group[$repo]}"/"$repo" "$repo"
+  git clone -q git@github.com:"${group[$repo]}"/"$repo" "$repo"
 }
 
 clean() {
@@ -79,7 +80,7 @@ checkCompiler() {
   if [ ! -d "scala" ]
   then
     if [ "$fetch" = "2" ]
-    then fetch lampepfl dotty && mv dotty scala
+    then fetch dotty && mv dotty scala
     else
       echo "Scala compiler not found."
       echo "Try again with -F or create a symlink to a clone of the lampepfl/dotty repository."
@@ -148,29 +149,48 @@ readToml() {
         '')
           ;;
         'target = '*)
-	  if [ "$target" = "" ]
+          if [ "$main" = "" ]
+          then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'target' should be inside a main section"
+          elif [ "$target" = "" ]
 	  then target="${line:9}"
-	  fi
+          fi
 	  ;;
+        'repos = '*)
+          if [ "$main" = "" ]
+          then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'repos' should be inside a main section"
+          else setRepoGroups "${line:8}"
+          fi
+          ;;
+        'src = '*)
+          if [ "$module" = "" ]
+          then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'src' should be inside a module section"
+          else sources[$module]="${line:6}"
+          fi
+          ;;
         'refs = '*)
           if [ "$module" = "" ]
-          then
-            message "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo:"
-            message "$buildModule" "$buildComponent" "$line"
-            exit 1
-          else
-            refs[$module]="${line:7}"
+          then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'refs' should be inside a module section"
+          else refs[$module]="${line:7}"
           fi
           ;;
         *)
-          message "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo:"
-          message "$buildModule" "$buildComponent" "$line"
-          exit 1
+          fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo."
           ;;
       esac
     done < "$file"
     parsed[$file]="1"
   fi
+}
+
+setRepoGroups() {
+  local IFS
+  local -a repos
+  IFS=' '
+  read -ra repos <<< "$1"
+  
+  for repo in "${repos[@]}"
+  do group[${repo##*/}]="${repo%%/*}"
+  done
 }
 
 classpath() {
@@ -197,7 +217,7 @@ classpath() {
 }
 
 build() {
-  local IFS id buildModule buildComponent root src chksum
+  local IFS id buildModule buildComponent root srcDir chksum
   
   id="$1"
   buildModule="$(echo "$id" | cut -d/ -f1)"
@@ -215,20 +235,16 @@ build() {
     if [ ! "$fetch" = "" ]
     then
       message "$buildModule" "$buildComponent" "Cloning Git repository"
-      fetch propensive "$buildModule"
+      fetch "$buildModule"
     else
       message "$buildModule" "$buildComponent" "Module $buildModule not found"
-      message "$buildModule" "$buildComponent" "Try again with -f or create a symlink to $root."
-      exit 1
+      fail "$buildModule" "$buildComponent" "Try again with -f or create a symlink to $root."
     fi
   fi
 
   if [ ! -e "$root"/build.wrath ]
-  then 
-    message "$buildModule" "$buildComponent" "Build file $root/build.wrath does not exist"
-    exit 1
-  else
-    readToml "$buildModule" "$buildComponent" "$root"/build.wrath
+  then fail "$buildModule" "$buildComponent" "Build file $root/build.wrath does not exist"
+  else readToml "$buildModule" "$buildComponent" "$root"/build.wrath
   fi
   
   if [ ! "${built[$id]}" = "1" ]
@@ -237,8 +253,7 @@ build() {
     then
       read -ra dependencies <<< "${refs[$id]}"
       for ref in "${dependencies[@]}"
-      do
-        build "$ref"
+      do build "$ref"
       done
       
       for ref in "${dependencies[@]}"
@@ -247,12 +262,10 @@ build() {
         then wait "${pids[$ref]}"
         fi
       done
-
-
-      src="$root/src/$buildComponent"
+      srcDir="$root/${sources[$buildModule/$buildComponent]}"
       chksum="$(cat .wrath/cache/"$id" 2>/dev/null)"
-      setChecksum "$src"
-      if [ ! "$chksum" = "${hashes[$src]}" ]
+      setChecksum "${srcDir}"
+      if [ ! "$chksum" = "${hashes[$srcDir]}" ]
       then
         message "$buildModule" "$buildComponent" "Compiling with Scala"
         mkdir -p .wrath/bin/"$buildModule"/"$buildComponent"
@@ -265,7 +278,7 @@ build() {
         classpath "$id"
         classpath="${lib[$id]// /:}"
         rm -f ".wrath/log/$buildModule/$buildComponent.log"
-        compile "$buildModule" "$buildComponent" "$classpath" "$src"
+        compile "$buildModule" "$buildComponent" "$classpath" "$root"
         pids[$id]="$!"
         
 	if [ -f "$root"/res/plugin.properties ]
@@ -277,14 +290,15 @@ build() {
 }
 
 compile() {
-  local classpath buildModule buildComponent srcDir
+  local classpath buildModule buildComponent root srcDir
   local -i pageWidth
   local -a opts
   buildModule="$1"
   buildComponent="$2"
   classpath="$3"
   pageWidth=$((COLUMNS - 21))
-  srcDir="$4"
+  root="$4"
+  srcDir="${sources[$buildModule/$buildComponent]}"
 
   opts=(
     -classpath "$classpath"
@@ -310,11 +324,11 @@ compile() {
   )
 
   rm -f .wrath/log/"$buildModule"-"$buildComponent".log
-  touch ".wrath/log/$buildModule-$buildComponent.log"
-  if $scalac "${opts[@]}" "$srcDir"/*.scala > .wrath/log/"$buildModule"-"$buildComponent".log 2>&1
+  touch .wrath/log/"$buildModule"-"$buildComponent".log
+  if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala > .wrath/log/"$buildModule"-"$buildComponent".log 2>&1
   then
     mkdir -p .wrath/cache/"$buildModule"
-    echo "${hashes[$src]}" > .wrath/cache/"$id"
+    echo "${hashes[$root/$srcDir]}" > .wrath/cache/"$id"
     built[$id]="1"
     message "$buildModule" "$buildComponent" "Compiled $id"
     
@@ -332,6 +346,11 @@ compile() {
     
     exit 1
   fi
+}
+
+fail() {
+  message "$1" "$2" "$3"
+  exit 1
 }
 
 message() {
@@ -359,9 +378,6 @@ parseOpts() {
       -F|--fetch-alll)
         fetch="2"
         shift 1 ;;
-      -g|--group)
-        group="$2"
-        shift 2 ;;
       -h|--help)
         showHelp
         ;;
@@ -408,8 +424,8 @@ module="$(echo "$target" | cut -d/ -f1)"
 component="$(echo "$target" | cut -d/ -f2)"
 
 checkCompiler
-mkdirs
 clean
+mkdirs
 build "$target"
 
 wait
