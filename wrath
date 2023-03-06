@@ -87,6 +87,7 @@ checkCompiler() {
       gmessage "Building Scala compiler"
       scala/bin/scalac -version > .wrath/log/scala.log
       gmessage "Finished building Scala compiler"
+      gmessage "$(scala/bin/scala -version)"
     else
       gmessage "Scala compiler not found."
       gmessage "Try again with -F or create a symlink to a clone of the lampepfl/dotty repository."
@@ -450,9 +451,9 @@ readToml "$module" "$component" "build.wrath" 1
 module="${target%%/*}"
 component="${target##*/}"
 
-checkCompiler
 clean
 mkdirs
+checkCompiler
 build "$target"
 
 wait
