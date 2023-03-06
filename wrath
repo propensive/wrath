@@ -147,6 +147,11 @@ readToml() {
 	  ;;
         '')
           ;;
+        'target = '*)
+	  if [ "$target" = "" ]
+	  then target="${line:9}"
+	  fi
+	  ;;
         'refs = '*)
           if [ "$module" = "" ]
           then
@@ -397,19 +402,18 @@ checkTarget() {
 }
 
 parseOpts "$@"
+readToml "$module" "$component" "build.wrath" 1
 
 module="$(echo "$target" | cut -d/ -f1)"
 component="$(echo "$target" | cut -d/ -f2)"
 
-readToml "$module" "$component" "build.wrath" 1
-
-clean
 checkCompiler
 mkdirs
-
-
+clean
 build "$target"
+
 wait
+
 if [ ! "$run" = "" ]
 then
   classpath "$target"
