@@ -15,8 +15,8 @@
 #   and limitations under the License.
 #
 
-declare -g -A refs built parsed pids hashes lib group sources
-declare -g run fetch scala scalac compiler repl esc
+declare -g -A refs built parsed pids hashes lib group sources mainClass
+declare -g run fetch scala scalac compiler repl esc overrideMain execClass
 
 group[dotty]="lampepfl"
 esc=$'\e'
@@ -120,7 +120,7 @@ package() {
 }
 
 readToml() {
-  local file dir module IFS isMain buildModule buildComponent
+  local file dir section IFS isMain buildModule buildComponent
   local -i lineNo
   
   IFS=$'\n'
@@ -139,7 +139,7 @@ readToml() {
       lineNo=$((lineNo+1))
       case "$line" in
         '['*'/'*']')
-          module="${line:1:-1}"
+          section="${line:1:-1}"
           ;;
         '['*']')
 	  if [ "$isMain" = "1" ]
@@ -161,16 +161,22 @@ readToml() {
           else setRepoGroups "${line:8}"
           fi
           ;;
+        'main = '*)
+          if [ "$section" = "" ]
+          then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'main' should be inside a module section"
+          else mainClass[$section]="${line:7}"
+          fi
+          ;;
         'src = '*)
-          if [ "$module" = "" ]
+          if [ "$section" = "" ]
           then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'src' should be inside a module section"
-          else sources[$module]="${line:6}"
+          else sources[$section]="${line:6}"
           fi
           ;;
         'refs = '*)
-          if [ "$module" = "" ]
+          if [ "$section" = "" ]
           then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'refs' should be inside a module section"
-          else refs[$module]="${line:7}"
+          else refs[$section]="${line:7}"
           fi
           ;;
         *)
@@ -385,6 +391,10 @@ parseOpts() {
         nonempty "$@"
         export JAVA_HOME="$2"
         shift 2 ;;
+      -m|--main)
+        nonempty "$@"
+	overrideMain="$2"
+	shift 2 ;;
       -r|--repl)
         repl="1"
 	shift ;;
@@ -396,9 +406,8 @@ parseOpts() {
         target="$2"
         shift 2 ;;
       -x|--exec)
-        nonempty "$@"
-        run="$2"
-        shift 2 ;;
+        run="1"
+        shift ;;
       -*)
         echo "Unrecognized option: '$1'"
         exit 1 ;;
@@ -430,11 +439,15 @@ build "$target"
 
 wait
 
-if [ ! "$run" = "" ]
+if [ "$run" = "1" ]
 then
   classpath "$target"
   classpath="${lib[$target]// /:}"
-  "$scala" -classpath "${classpath}"dist/"$module"-"$component".jar "$run"
+  execClass="${overrideMain:-${mainClass[$target]}}"
+  if [ "$execClass" = "" ]
+  then fail "$module" "$component" "Main class has not been specified."
+  else "$scala" -classpath "${classpath}"dist/"$module"-"$component".jar "$execClass"
+  fi
 fi
 
 if [ "$repl" = "1" ]
