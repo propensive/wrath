@@ -88,7 +88,7 @@ checkCompiler() {
       mkdir -p .wrath/log
       scala/bin/scalac -version > .wrath/log/scala.log 2>&1
       gmessage "Finished building Scala compiler"
-      gmessage "$(scala/bin/scala -version)"
+      gmessage "$(scala/bin/scala -version 2>&1)"
     else
       gmessage "Scala compiler not found."
       gmessage "Try again with -F or create a symlink to a clone of the lampepfl/dotty repository."
