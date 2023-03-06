@@ -107,7 +107,11 @@ setChecksum() {
   local dir
   dir="$1"
   if [ "${hashes[$dir]}" = "" ]
-  then hashes[$dir]="$(md5sum "$dir"/*.scala | md5sum | cut -d' ' -f1)"
+  then
+    if compgen -G "$dir"/*.scala > /dev/null
+    then hashes[$dir]="$(cat "$dir"/*.scala | md5sum | cut -d' ' -f1)"
+    else hashes[$dir]="0"
+    fi
   fi
 }
 
@@ -343,26 +347,29 @@ compile() {
 
   rm -f .wrath/log/"$buildModule"-"$buildComponent".log
   touch .wrath/log/"$buildModule"-"$buildComponent".log
-  if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala > .wrath/log/"$buildModule"-"$buildComponent".log 2>&1
+  if compgen -G "$root"/"$srcDir"/*.scala > /dev/null
   then
-    mkdir -p .wrath/cache/"$buildModule"
-    echo "${hashes[$root/$srcDir]}" > .wrath/cache/"$id"
-    built[$id]="1"
-    message "$buildModule" "$buildComponent" "Finished compiling"
+    if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala > .wrath/log/"$buildModule"-"$buildComponent".log 2>&1
+    then
+      mkdir -p .wrath/cache/"$buildModule"
+      echo "${hashes[$root/$srcDir]}" > .wrath/cache/"$id"
+      built[$id]="1"
+      message "$buildModule" "$buildComponent" "Finished compiling"
     
-    while read -r line
-    do message "$buildModule" "$buildComponent" "$line"
-    done < .wrath/log/"$buildModule"-"$buildComponent".log
+      while read -r line
+      do message "$buildModule" "$buildComponent" "$line"
+      done < .wrath/log/"$buildModule"-"$buildComponent".log
 
-    package dist/"$buildModule"-"$buildComponent".jar .wrath/bin/"$buildModule"/"$buildComponent"
-  else
-    message "$buildModule" "$buildComponent" "Compilation failed"
+      package dist/"$buildModule"-"$buildComponent".jar .wrath/bin/"$buildModule"/"$buildComponent"
+    else
+      message "$buildModule" "$buildComponent" "Compilation failed"
     
-    while read -r line
-    do message "$buildModule" "$buildComponent" "$line"
-    done < .wrath/log/"$buildModule"-"$buildComponent".log
+      while read -r line
+      do message "$buildModule" "$buildComponent" "$line"
+      done < .wrath/log/"$buildModule"-"$buildComponent".log
     
-    exit 1
+      exit 1
+    fi
   fi
 }
 
