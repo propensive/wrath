@@ -85,7 +85,8 @@ checkCompiler() {
       gmessage "Fetching Scala compiler"
       fetch dotty && mv dotty scala
       gmessage "Building Scala compiler"
-      scala/bin/scalac -version > .wrath/log/scala.log
+      mkdir -p .wrath/log
+      scala/bin/scalac -version > .wrath/log/scala.log 2>&1
       gmessage "Finished building Scala compiler"
       gmessage "$(scala/bin/scala -version)"
     else
