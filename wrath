@@ -152,6 +152,8 @@ readToml() {
     do
       lineNo=$((lineNo+1))
       case "$line" in
+        '#'*)
+	  ;;
         '['*'/'*']')
           section="${line:1:-1}"
           ;;
