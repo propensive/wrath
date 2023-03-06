@@ -17,10 +17,12 @@
 
 declare -g -A refs built parsed pids hashes lib group sources mainClass
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass
+declare -i columns
 
 group[dotty]="lampepfl"
 esc=$'\e'
 compiler="$(realpath scala)"
+columns=${COLUMNS:-116}
 
 nonempty() {
   if [ "$2" = "" ]
@@ -66,10 +68,10 @@ clean() {
   case "$clean" in
     1)
       message "$module" "$component" "Cleaning"
-      rm -rf ".wrath/bin/$target" ".wrath/cache/$target" ".wrath/log/$target"
+      rm -rf .wrath/bin/"$target" .wrath/cache/"$target" .wrath/log/"$target"
       ;;
     2)
-      message "$module" "$component" "Cleaning everything"
+      gmessage "Cleaning all modules"
       rm -rf .wrath/bin .wrath/cache .wrath/log .wrath/plugin
       ;;
   esac
@@ -79,10 +81,15 @@ checkCompiler() {
   if [ ! -d "scala" ]
   then
     if [ "$fetch" = "2" ]
-    then fetch dotty && mv dotty scala
+    then
+      gmessage "Fetching Scala compiler"
+      fetch dotty && mv dotty scala
+      gmessage "Building Scala compiler"
+      scala/bin/scalac -version > .wrath/log/scala.log
+      gmessage "Finished building Scala compiler"
     else
-      echo "Scala compiler not found."
-      echo "Try again with -F or create a symlink to a clone of the lampepfl/dotty repository."
+      gmessage "Scala compiler not found."
+      gmessage "Try again with -F or create a symlink to a clone of the lampepfl/dotty repository."
       exit 1
     fi
   fi
@@ -126,13 +133,15 @@ readToml() {
   buildModule="$1"
   buildComponent="$2"
   file="$3"
-  dir="$(dirname "$(realpath --relative-to="$PWD" "$file")")"
   isMain="$4"
   lineNo=0
   
   if [ ! "${parsed[$file]}" = "1" ]
   then
-    message "$buildModule" "$buildComponent" "Reading buildfile in ${dir}/"
+    if [ ! "$isMain" = "1" ]
+    then message "$buildModule" "$buildComponent" "Reading build"
+    fi
+    
     while read -r line
     do
       lineNo=$((lineNo+1))
@@ -225,8 +234,8 @@ build() {
   local IFS id buildModule buildComponent root srcDir chksum
   
   id="$1"
-  buildModule="$(echo "$id" | cut -d/ -f1)"
-  buildComponent="$(echo "$id" | cut -d/ -f2)"
+  buildModule="${id%%/*}"
+  buildComponent="${id##*/}"
   
   if [ "$buildModule" = "$main" ]
   then root="$(realpath .)"
@@ -242,7 +251,7 @@ build() {
       message "$buildModule" "$buildComponent" "Cloning Git repository"
       fetch "$buildModule"
     else
-      message "$buildModule" "$buildComponent" "Module $buildModule not found"
+      message "$buildModule" "$buildComponent" "Module not found"
       fail "$buildModule" "$buildComponent" "Try again with -f or create a symlink to $root."
     fi
   fi
@@ -282,12 +291,14 @@ build() {
         fi
         classpath "$id"
         classpath="${lib[$id]// /:}"
-        rm -f ".wrath/log/$buildModule/$buildComponent.log"
+        rm -f .wrath/log/"$buildModule"/"$buildComponent".log
         compile "$buildModule" "$buildComponent" "$classpath" "$root"
         pids[$id]="$!"
         
 	if [ -f "$root"/res/plugin.properties ]
-        then cp dist/"$buildModule"-"$buildComponent".jar .wrath/plugins/"$buildModule"-"$buildComponent".jar
+        then
+	  emssage "$buildModule" "$buildComponent" "Installing plugin"
+	  cp dist/"$buildModule"-"$buildComponent".jar .wrath/plugins/"$buildModule"-"$buildComponent".jar
         fi
       fi
     fi
@@ -301,7 +312,7 @@ compile() {
   buildModule="$1"
   buildComponent="$2"
   classpath="$3"
-  pageWidth=$((COLUMNS - 21))
+  pageWidth=$((columns - 21))
   root="$4"
   srcDir="${sources[$buildModule/$buildComponent]}"
 
@@ -335,7 +346,7 @@ compile() {
     mkdir -p .wrath/cache/"$buildModule"
     echo "${hashes[$root/$srcDir]}" > .wrath/cache/"$id"
     built[$id]="1"
-    message "$buildModule" "$buildComponent" "Compiled $id"
+    message "$buildModule" "$buildComponent" "Finished compiling"
     
     while read -r line
     do message "$buildModule" "$buildComponent" "$line"
@@ -356,6 +367,13 @@ compile() {
 fail() {
   message "$1" "$2" "$3"
   exit 1
+}
+
+gmessage() {
+  local text prefix
+  text="$1"
+  prefix="${esc}[1;32mwrath${esc}[2;37m:${esc}[0m"
+  printf "%38s %s\n" "$prefix" "$text"
 }
 
 message() {
@@ -408,10 +426,10 @@ parseOpts() {
         run="1"
         shift ;;
       -*)
-        echo "Unrecognized option: '$1'"
+        gmessage "Unrecognized option: '$1'"
         exit 1 ;;
       *)
-        echo "Unrecognized parameter: '$1"
+        gmessage "Unrecognized parameter: '$1"
         exit 1 ;;
     esac
   done
@@ -420,16 +438,17 @@ parseOpts() {
 checkTarget() {
   if [[ "$target" = "" ]]
   then
-    echo "A build target is required"
+    gmessage "A build target is required"
     exit 1
   fi
 }
 
 parseOpts "$@"
+gmessage "Starting build"
 readToml "$module" "$component" "build.wrath" 1
 
-module="$(echo "$target" | cut -d/ -f1)"
-component="$(echo "$target" | cut -d/ -f2)"
+module="${target%%/*}"
+component="${target##*/}"
 
 checkCompiler
 clean
