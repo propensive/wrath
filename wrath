@@ -305,7 +305,7 @@ build() {
         
 	if [ -f "$root"/res/plugin.properties ]
         then
-	  emssage "$buildModule" "$buildComponent" "Installing plugin"
+	  message "$buildModule" "$buildComponent" "Installing plugin"
 	  cp dist/"$buildModule"-"$buildComponent".jar .wrath/plugins/"$buildModule"-"$buildComponent".jar
         fi
       fi
