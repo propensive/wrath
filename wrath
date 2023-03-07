@@ -21,7 +21,6 @@ declare -i columns
 
 group[dotty]="lampepfl"
 esc=$'\e'
-compiler="$(realpath scala)"
 columns=${COLUMNS:-116}
 configFile="${XDG_CONFIG_HOME:-$HOME/.config}/wrath.conf"
 
@@ -80,15 +79,18 @@ clean() {
 }
 
 checkCompiler() {
-  if [ ! -d "scala" ]
+  if [ ! -d scala ]
   then
-    if [ "$fetch" = "2" ]
+    if [ -d "$defaultDir"/scala ]
+    then compiler="$(realpath "$defaultDir"/scala)"
+    elif [ "$fetch" = "2" ]
     then
+      compiler="$(realpath scala)"
       gmessage "Fetching Scala compiler"
       fetch dotty && mv dotty scala
       gmessage "Building Scala compiler"
       mkdir -p .wrath/log
-      scala/bin/scalac -version > .wrath/log/scala.log 2>&1
+      $compiler/bin/scalac -version > .wrath/log/scala.log 2>&1
       gmessage "Finished building Scala compiler"
       gmessage "$(scala/bin/scala -version 2>&1)"
     else
