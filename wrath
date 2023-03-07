@@ -16,13 +16,14 @@
 #
 
 declare -g -A refs built parsed pids hashes lib group sources mainClass
-declare -g run fetch scala scalac compiler repl esc overrideMain execClass
+declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir
 declare -i columns
 
 group[dotty]="lampepfl"
 esc=$'\e'
 compiler="$(realpath scala)"
 columns=${COLUMNS:-116}
+configFile="${XDG_CONFIG_HOME:-$HOME/.config}/wrath.conf"
 
 nonempty() {
   if [ "$2" = "" ]
@@ -40,6 +41,7 @@ Builds a project with Wrath.
 Options:
   -c, --clean              clean the target project
   -C, --deep-clean         clean all targets
+  -d, --default <dir>      look inside directory <dir> for dependencies
   -f, --fetch              automatically fetch missing dependencies
   -F, --fetch-all          automatically fetch missing dependencies and compiler
   -h, --help               show this help message
@@ -129,6 +131,15 @@ package() {
     args+=(-C "$dir" "$file")
   done
   jar cf "${jarFile}" "${args[@]}"
+}
+
+readConfig() {
+  if [ "$defaultDir" = "" ]
+  then
+    if [ -e "$configFile" ]
+    then defaultDir="$(cat $configFile)"
+    fi
+  fi
 }
 
 readToml() {
@@ -249,18 +260,22 @@ build() {
   then root="$(realpath .)"
   else root="$(realpath "$buildModule")"
   fi
-  
+
   IFS=' '
-  
+
   if [ ! -d "$root" ]
   then
-    if [ ! "$fetch" = "" ]
-    then
-      message "$buildModule" "$buildComponent" "Cloning Git repository"
-      fetch "$buildModule"
+    if [ -d "$defaultDir"/"$buildModule" ]
+    then root="$(realpath "$defaultDir"/"$buildModule")"
     else
-      message "$buildModule" "$buildComponent" "Module not found"
-      fail "$buildModule" "$buildComponent" "Try again with -f or create a symlink to $root."
+      if [ ! "$fetch" = "" ]
+      then
+        message "$buildModule" "$buildComponent" "Cloning Git repository"
+        fetch "$buildModule"
+      else
+        message "$buildModule" "$buildComponent" "Module not found"
+        fail "$buildModule" "$buildComponent" "Try again with -f or create a symlink to $root."
+      fi
     fi
   fi
 
@@ -406,6 +421,10 @@ parseOpts() {
       -C|--deep-clean)
         clean="2"
         shift 1 ;;
+      -d|--default)
+        nonempty "$@"
+        defaultDir="$2"
+        shift 2 ;;
       -f|--fetch)
         fetch="1"
         shift 1 ;;
@@ -455,6 +474,8 @@ checkTarget() {
 }
 
 parseOpts "$@"
+gmessage "Reading global config"
+readConfig
 gmessage "Starting build"
 readToml "$module" "$component" "build.wrath" 1
 
