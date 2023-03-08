@@ -109,7 +109,7 @@ checkCompiler() {
       fetch dotty && mv dotty scala
       gmessage "Building Scala compiler"
       mkdir -p .wrath/log
-      $compiler/bin/scalac -version > .wrath/log/scala.log 2>&1
+      "$compiler"/bin/scalac -version > .wrath/log/scala.log 2>&1
       gmessage "Finished building Scala compiler"
       gmessage "$(scala/bin/scala -version 2>&1)"
     else
@@ -158,7 +158,7 @@ readConfig() {
   if [ "$defaultDir" = "" ]
   then
     if [ -e "$configFile" ]
-    then defaultDir="$(cat $configFile)"
+    then defaultDir="$(cat "$configFile")"
     fi
   fi
 }
