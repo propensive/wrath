@@ -139,19 +139,20 @@ setChecksum() {
 }
 
 package() {
-  local dir file
+  local dir jarFile
   local -a args
-  local -i len
+  
   jarFile="$1"
   dir="$2"
-  len="${#dir}"
-  len=$((len + 1))
+
   for include in "$dir"/*
   do
-    file="${include:$len}"
-    args+=(-C "$dir" "$file")
+    find "$include" -print0 | while IFS= read -r -d '' item
+    do touch -d 2000-01-01 "$item"
+    done
+    args+=(-C "${include%/*}" "${include##*/}")
   done
-  jar cf "${jarFile}" "${args[@]}"
+  jar cMf "${jarFile}" "${args[@]}"
 }
 
 readConfig() {
