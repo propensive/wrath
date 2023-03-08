@@ -15,7 +15,7 @@
 #   and limitations under the License.
 #
 
-declare -g -A refs built parsed pids hashes lib group sources mainClass
+declare -g -A refs built parsed pids hashes lib group sources mainClass jars
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir
 declare -i columns
 
@@ -58,6 +58,25 @@ EOF
   exit 0
 }
 
+fetchLibs() {
+  local id IFS
+  local -a libs
+  IFS=" "
+  id="$1"
+  read -ra libs <<< "${jars[$1]}"
+  
+  for url in "${libs[@]}"
+  do download "$url"
+  done
+}
+
+download() {
+  local filename url
+  url="$1"
+  filename="${url##*/}"
+  wget -q -O .wrath/lib/"$filename" "$url"
+}
+
 fetch() {
   local repo
   repo="$1"
@@ -68,7 +87,7 @@ fetch() {
 clean() {
   case "$clean" in
     1)
-      message "$module" "$component" "Cleaning"
+      message "$module"/"$component" "Cleaning"
       rm -rf .wrath/bin/"$target" .wrath/cache/"$target" .wrath/log/"$target"
       ;;
     2)
@@ -104,7 +123,7 @@ checkCompiler() {
 }
 
 mkdirs() {
-  mkdir -p .wrath/bin dist .wrath/cache .wrath/log .wrath/plugins
+  mkdir -p .wrath/bin dist .wrath/cache .wrath/log .wrath/plugins .wrath/lib
 }
 
 setChecksum() {
@@ -158,7 +177,7 @@ readToml() {
   if [ ! "${parsed[$file]}" = "1" ]
   then
     if [ ! "$isMain" = "1" ]
-    then message "$buildModule" "$buildComponent" "Reading build"
+    then message "$buildModule"/"$buildComponent" "Reading build"
     fi
     
     while read -r line
@@ -194,6 +213,12 @@ readToml() {
           if [ "$section" = "" ]
           then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'main' should be inside a module section"
           else mainClass[$section]="${line:7}"
+          fi
+          ;;
+        'lib = '*)
+          if [ "$section" = "" ]
+          then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'lib' should be inside a module section"
+          else jars[$section]="${line:6}"
           fi
           ;;
         'src = '*)
@@ -232,20 +257,27 @@ classpath() {
   local IFS id
   local -a acc dependencies dedup
   id="$1"
-  IFS=' '
+  IFS=" "
   
   if [ "${lib[$id]}" = "" ]
   then
+    read -ra libs <<< "${jars[$id]}"
+    for jar in "${libs[@]}"
+    do
+      acc+=(.wrath/lib/"${jar##*/}")
+    done
+    
     read -ra dependencies <<< "${refs[$id]}"
     for ref in "${dependencies[@]}"
     do classpath "$ref"
     done
-
+    
     for ref in "${dependencies[@]}"
     do
       acc+=(dist/"${ref//\//-}".jar)
       acc+=("${lib[$ref]}")
     done
+
     dedup="$(echo "${acc[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
     lib[$id]="$dedup"
   fi
@@ -272,14 +304,16 @@ build() {
     else
       if [ ! "$fetch" = "" ]
       then
-        message "$buildModule" "$buildComponent" "Cloning Git repository"
+        message "$buildModule"/"$buildComponent" "Cloning Git repository"
         fetch "$buildModule"
       else
-        message "$buildModule" "$buildComponent" "Module not found"
+        message "$buildModule"/"$buildComponent" "Module not found"
         fail "$buildModule" "$buildComponent" "Try again with -f or create a symlink to $root."
       fi
     fi
   fi
+
+  fetchLibs "$id"
 
   if [ ! -e "$root"/build.wrath ]
   then fail "$buildModule" "$buildComponent" "Build file $root/build.wrath does not exist"
@@ -306,7 +340,7 @@ build() {
       setChecksum "${srcDir}"
       if [ ! "$chksum" = "${hashes[$srcDir]}" ]
       then
-        message "$buildModule" "$buildComponent" "Compiling with Scala"
+        message "$buildModule"/"$buildComponent" "Compiling with Scala"
         mkdir -p .wrath/bin/"$buildModule"/"$buildComponent"
         if [ -d "$root/res" ]
         then
@@ -322,7 +356,7 @@ build() {
         
 	if [ -f "$root"/res/plugin.properties ]
         then
-	  message "$buildModule" "$buildComponent" "Installing plugin"
+	  message "$buildModule"/"$buildComponent" "Installing plugin"
 	  cp dist/"$buildModule"-"$buildComponent".jar .wrath/plugins/"$buildModule"-"$buildComponent".jar
         fi
       fi
@@ -373,18 +407,18 @@ compile() {
       mkdir -p .wrath/cache/"$buildModule"
       echo "${hashes[$root/$srcDir]}" > .wrath/cache/"$id"
       built[$id]="1"
-      message "$buildModule" "$buildComponent" "Finished compiling"
+      message "$buildModule"/"$buildComponent" "Finished compiling"
     
       while read -r line
-      do message "$buildModule" "$buildComponent" "$line"
+      do message "$buildModule"/"$buildComponent" "$line"
       done < .wrath/log/"$buildModule"-"$buildComponent".log
 
       package dist/"$buildModule"-"$buildComponent".jar .wrath/bin/"$buildModule"/"$buildComponent"
     else
-      message "$buildModule" "$buildComponent" "Compilation failed"
+      message "$buildModule"/"$buildComponent" "Compilation failed"
     
       while read -r line
-      do message "$buildModule" "$buildComponent" "$line"
+      do message "$buildModule"/"$buildComponent" "$line"
       done < .wrath/log/"$buildModule"-"$buildComponent".log
     
       exit 1
@@ -393,7 +427,7 @@ compile() {
 }
 
 fail() {
-  message "$1" "$2" "$3"
+  message "$1"/"$2" "$3"
   exit 1
 }
 
@@ -405,10 +439,11 @@ gmessage() {
 }
 
 message() {
-  local module component text prefix
-  module="$1"
-  component="$2"
-  text="$3"
+  local id module component text prefix
+  id="$1"
+  module="${id%%/*}"
+  component="${id##*/}"
+  text="$2"
   prefix="${esc}[0;36m$module${esc}[2;37m/${esc}[1;34m$component${esc}[2;37m:${esc}[0m"
   printf "%52s %s\n" "$prefix" "$text"
 }
