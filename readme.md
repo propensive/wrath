@@ -44,11 +44,11 @@ useful in CI environments.
 
 Configuration files are called `build.wrath` and are written in a simple form
 of [TOML](https://toml.io/). They consist of _build sections_, such as,
-```toml
+```
 [omega]
 ```
 and _module sections_, such as,
-```toml
+```
 [omega/app]
 ```
 distinguished by the absence or presence of a `/`.
@@ -58,7 +58,7 @@ A build section defines parameters for the whole build, specifically,
 - `target` — the default module to compile (and maybe run), in the form `<build>/<module>`.
 
 For example:
-```toml
+```
 [omega]
 repos = propensive/rudiments omega/omegadb
 target = omega/app
@@ -67,12 +67,22 @@ target = omega/app
 Under a module section, the following parameters may be used:
 - `src` — a single source directory containing .scala files
 - `main` — the default main class to execute for this module
+- `lib` — a space-separated list of URLs to be downloaded and included on the classpath
 - `refs` — a space-separated list of module dependencies, in the form `<build>/<module>`
 
 For example:
-```toml
+```
 [omega/app]
 refs = rudiments/core omegadb/core
 src = src/scala/core
 main = omega.Main
+lib = https://example.com/library-dependency.jar https://example.com/another-dependency.jar
 ```
+
+### Files
+
+Wrath stores all its working files in a directory called `.wrath` in the
+project root directory. This directory can be safely deleted. All produced
+artifacts are stored in a directory called `dist` in the project root
+directory.
+
