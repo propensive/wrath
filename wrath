@@ -15,7 +15,7 @@
 #   and limitations under the License.
 #
 
-declare -g -A include built parsed pids hashes lib group sources mainClass jars plugin
+declare -g -A include built parsed pids hashes lib sources mainClass jars plugin
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir project module
 declare -i columns
 
@@ -50,8 +50,7 @@ refocus() {
     difference=$((difference-1))
   fi
   if [ $difference = 1 ]
-  then
-    focus+=("$nodeId")
+  then focus+=("$nodeId")
   fi
   
   printf -v address ".%s" "${focus[@]}"
@@ -174,7 +173,6 @@ values() {
 }
 # end codl.sh
 
-group[dotty]="lampepfl"
 esc=$'\e'
 columns=${COLUMNS:-116}
 configFile="${XDG_CONFIG_HOME:-$HOME/.config}/wrath.conf"
@@ -232,11 +230,15 @@ download() {
   wget -q -O .wrath/lib/"$filename" "$url"
 }
 
-fetch() {
-  local repo
+fetchRepo() {
+  local repo dest
   repo="$1"
-  
-  git clone -q https://github.com/"${group[$repo]}"/"$repo" "$repo"
+  dest="$2"
+  if [ ! -d "$dest" ]
+  then
+    gmessage "Cloning Git repository $repo"
+    git clone -q https://github.com/"$repo" "$dest"
+  fi
 }
 
 clean() {
@@ -253,15 +255,16 @@ clean() {
 }
 
 checkCompiler() {
-  if [ ! -d scala ]
-  then
+  if [ -d scala ]
+  then compiler="$(realpath scala)"
+  else
     if [ -d "$defaultDir"/scala ]
     then compiler="$(realpath "$defaultDir"/scala)"
     elif [ "$fetch" = "2" ]
     then
       compiler="$(realpath scala)"
       gmessage "Fetching Scala compiler"
-      fetch dotty && mv dotty scala
+      fetchRepo lampepfl/dotty dotty && mv dotty scala
       gmessage "Building Scala compiler"
       mkdir -p .wrath/log
       "$compiler"/bin/scalac -version > .wrath/log/scala.log 2>&1
@@ -320,23 +323,30 @@ readConfig() {
 }
 
 readCodl() {
-  local buildProject buildModule file ref IFS project module
+  local bproject bmodule file ref IFS project module
   local -i isMain
   IFS=$'\n'
-  buildProject="$1"
-  buildModule="$2"
+  bproject="$1"
+  bmodule="$2"
   file="$3"
   isMain="$4"
 
   if [ ! "${parsed[$file]}" = "1" ]
   then
     if [ ! "$isMain" = "1" ]
-    then message "$buildProject"/"$buildModule" "Reading build"
+    then message "$bproject"/"$bmodule" "Reading build"
     fi
     parseCodl "$file"
 
     if [ "$isMain" = "1" ]
     then target="$(values "$file:target")"
+    fi
+
+    if [ "$fetch" -ge "1" ]
+    then
+      for repo in $(children "$file:" repo)
+      do fetchRepo "$repo" "${repo#*/}"
+      done
     fi
 
     for project in $(children "$file:" project)
@@ -400,31 +410,28 @@ classpath() {
 }
 
 build() {
-  local IFS id buildProject buildModule root srcDir chksum
+  local IFS id bproject bmodule root srcDir chksum
   
   id="$1"
-  buildProject="${id%%/*}"
-  buildModule="${id##*/}"
+  bproject="${id%%/*}"
+  bmodule="${id##*/}"
   
-  if [ "$buildProject" = "$main" ]
+  if [ "$bproject" = "$project" ]
   then root="$(realpath .)"
-  else root="$(realpath "$buildProject")"
+  else root="$(realpath "$bproject")"
   fi
 
   IFS=' '
 
   if [ ! -d "$root" ]
   then
-    if [ -d "$defaultDir"/"$buildProject" ]
-    then root="$(realpath "$defaultDir"/"$buildProject")"
+    if [ -d "$defaultDir"/"$bproject" ]
+    then root="$(realpath "$defaultDir"/"$bproject")"
     else
-      if [ ! "$fetch" = "" ]
+      if [ "$fetch" = "" ]
       then
-        message "$buildProject"/"$buildModule" "Cloning Git repository"
-        fetch "$buildProject"
-      else
-        message "$buildProject"/"$buildModule" "Module not found"
-        fail "$buildProject" "$buildModule" "Try again with -f or create a symlink to $root."
+        message "$bproject"/"$bmodule" "Module not found"
+        fail "$bproject" "$bmodule" "Try again with -f or create a symlink to $root."
       fi
     fi
   fi
@@ -432,8 +439,8 @@ build() {
   fetchLibs "$id"
 
   if [ ! -e "$root"/build.wrath ]
-  then fail "$buildProject" "$buildModule" "Build file $root/build.wrath does not exist"
-  else readCodl "$buildProject" "$buildModule" "$root"/build.wrath
+  then fail "$bproject" "$bmodule" "Build file $root/build.wrath does not exist"
+  else readCodl "$bproject" "$bmodule" "$root"/build.wrath
   fi
   
   if [ ! "${built[$id]}" = "1" ]
@@ -451,29 +458,29 @@ build() {
         then wait "${pids[$ref]}"
         fi
       done
-      srcDir="$root/${sources[$buildProject/$buildModule]}"
+      srcDir="$root/${sources[$bproject/$bmodule]}"
       chksum="$(cat .wrath/cache/"$id" 2>/dev/null)"
       setChecksum "${srcDir}"
       if [ ! "$chksum" = "${hashes[$srcDir]}" ]
       then
-        mkdir -p .wrath/bin/"$buildProject"/"$buildModule"
+        mkdir -p .wrath/bin/"$bproject"/"$bmodule"
         if [ -d "$root/res" ]
         then
           for res in "$root"/res/*
-          do cp -r "$res" .wrath/bin/"$buildProject"/"$buildModule"/
+          do cp -r "$res" .wrath/bin/"$bproject"/"$bmodule"/
           done
         fi
         classpath "$id"
         classpath="${lib[$id]// /:}"
-        rm -f .wrath/log/"$buildProject"/"$buildModule".log
-        compile "$buildProject" "$buildModule" "$classpath" "$root"
+        rm -f .wrath/log/"$bproject"/"$bmodule".log
+        compile "$bproject" "$bmodule" "$classpath" "$root"
         pids[$id]="$!"
   
-        if [ "${plugin[$buildProject/$buildModule]}" = "1" ]
+        if [ "${plugin[$bproject/$bmodule]}" = "1" ]
 	      #if [ -f "$root"/res/plugin.properties ]
         then
-	        message "$buildProject"/"$buildModule" "Installing plugin"
-	        cp dist/"$buildProject"-"$buildModule".jar .wrath/plugin/"$buildProject"-"$buildModule".jar
+	        message "$bproject"/"$bmodule" "Installing plugin"
+	        cp dist/"$bproject"-"$bmodule".jar .wrath/plugin/"$bproject"-"$bmodule".jar
         fi
       fi
     fi
@@ -481,19 +488,19 @@ build() {
 }
 
 compile() {
-  local classpath buildProject buildModule root srcDir
+  local classpath bproject bmodule root srcDir
   local -i pageWidth
   local -a opts
-  buildProject="$1"
-  buildModule="$2"
+  bproject="$1"
+  bmodule="$2"
   classpath="$3"
   pageWidth=$((columns - 21))
   root="$4"
-  srcDir="${sources[$buildProject/$buildModule]}"
+  srcDir="${sources[$bproject/$bmodule]}"
 
   opts=(
     -classpath "$classpath"
-    -d .wrath/bin/"$buildProject"/"$buildModule"
+    -d .wrath/bin/"$bproject"/"$bmodule"
     -Xmax-inlines 64
     -Xpluginsdir .wrath/plugin
     -feature
@@ -514,29 +521,29 @@ compile() {
     -language:experimental.namedTypeArguments
   )
 
-  rm -f .wrath/log/"$buildProject"-"$buildModule".log
-  touch .wrath/log/"$buildProject"-"$buildModule".log
+  rm -f .wrath/log/"$bproject"-"$bmodule".log
+  touch .wrath/log/"$bproject"-"$bmodule".log
   if compgen -G "$root"/"$srcDir"/*.scala > /dev/null
   then
-    message "$buildProject"/"$buildModule" "Compiling..."
-    if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala > .wrath/log/"$buildProject"-"$buildModule".log 2>&1
+    message "$bproject"/"$bmodule" "Compiling..."
+    if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala > .wrath/log/"$bproject"-"$bmodule".log 2>&1
     then
-      mkdir -p .wrath/cache/"$buildProject"
+      mkdir -p .wrath/cache/"$bproject"
       echo "${hashes[$root/$srcDir]}" > .wrath/cache/"$id"
       built[$id]="1"
-      message "$buildProject"/"$buildModule" "Finished compiling"
+      message "$bproject"/"$bmodule" "Finished compiling"
     
       while read -r line
-      do message "$buildProject"/"$buildModule" "$line"
-      done < .wrath/log/"$buildProject"-"$buildModule".log
+      do message "$bproject"/"$bmodule" "$line"
+      done < .wrath/log/"$bproject"-"$bmodule".log
 
-      package dist/"$buildProject"-"$buildModule".jar .wrath/bin/"$buildProject"/"$buildModule"
+      package dist/"$bproject"-"$bmodule".jar .wrath/bin/"$bproject"/"$bmodule"
     else
-      message "$buildProject"/"$buildModule" "Compilation failed"
+      message "$bproject"/"$bmodule" "Compilation failed"
     
       while read -r line
-      do message "$buildProject"/"$buildModule" "$line"
-      done < .wrath/log/"$buildProject"-"$buildModule".log
+      do message "$bproject"/"$bmodule" "$line"
+      done < .wrath/log/"$bproject"-"$bmodule".log
     
       exit 1
     fi
