@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#   Wrath, version 0.1.0. Copyright 2023 Jon Pretty, Propensive OÜ.
+#   Wrath, version 0.2.0. Copyright 2023 Jon Pretty, Propensive OÜ.
 #
 #   The primary distribution site is: https://propensive.com/
 #
@@ -15,9 +15,164 @@
 #   and limitations under the License.
 #
 
-declare -g -A refs built parsed pids hashes lib group sources mainClass jars
-declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir
+declare -g -A include built parsed pids hashes lib group sources mainClass jars plugin
+declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir project module
 declare -i columns
+
+# start codl.sh
+declare -A nodes childNodes nodeTypes identifier values
+declare -a focus
+focus=("")
+shopt -s extglob
+
+refocus() {
+  local -i level difference depth
+  local -a nodeArgs
+  local node nodeType address parent
+  level=$1
+  nodeId="$2"
+  file="$3"
+  nodeType="$4"
+  nodeArgs=("${@:4}")
+  depth=${#focus[@]}
+  difference=$((depth-level))
+  
+  while [ $difference -gt 2 ]
+  do
+    unset 'focus[-1]'
+    depth=${#focus[@]}
+    difference=$((depth-level))
+  done
+  
+  if [ $difference = 2 ]
+  then
+    unset 'focus[-1]'
+    difference=$((difference-1))
+  fi
+  if [ $difference = 1 ]
+  then
+    focus+=("$nodeId")
+  fi
+  
+  printf -v address ".%s" "${focus[@]}"
+  parent="${address%.*}"
+  address="${address:2}"
+  parent="${parent:2}"
+  nodeTypes["$file:$address"]="${nodeType}"
+  
+  if [ "${values["$file:$address"]}" = "" ]
+  then values["$file:$address"]="${nodeArgs[*]:1}"
+  else values["$file:$address"]+=" ${nodeArgs[*]:1}"
+  fi
+
+  if [ "${childNodes["$file:$parent"]}" = "" ]
+  then childNodes["$file:$parent"]="$file:$address"
+  else childNodes["$file:$parent"]+=" $file:$address"
+  fi
+}
+
+parseLine() {
+  local -i level abort lineNo
+  local -a atoms
+  local line IFS id file
+  file="$1"
+  line="$2"
+  level=0
+  abort=0
+
+  while [ $abort = 0 ]
+  do
+    case "$line" in
+      *( )#*|*( ))
+        abort=1
+        lineNo=$((lineNo+1))
+        ;;
+      '  '*)
+        level=$((level+1))
+        line="${line:2}"
+        lineNo=$((lineNo+1))
+        ;;
+      *)
+        read -ra atoms <<< "$line"
+        nonEmpty "${identifier[${atoms[0]}]}" "Unrecognized identifier: ${atoms[0]} in $file line $lineNo"
+        id="${atoms[${identifier[${atoms[0]}]}]}"
+        nonEmpty "$id" "Unrecognized atom: '${atoms[0]}'"
+        refocus $level "$id" "$file" "${atoms[0]}" "${atoms[@]:1}"
+        abort=1
+        lineNo=$((lineNo+1))
+        ;;
+    esac
+  done
+}
+
+parseCodl() {
+  local file
+  file="$1"
+  while IFS=$'\n' read -r line
+  do parseLine "$file" "$line"
+  done < "$file"
+}
+
+childPaths() {
+  local filter node IFS
+  local -a nodes
+  IFS=$' '
+  node="$1"
+  filter="$2"
+  read -ra nodes <<< "${childNodes[$node]}"
+  for node in "${nodes[@]}"
+  do
+    if [ "$filter" = "" ]
+    then printf "%s\n" "$node"
+    elif [ "$filter" = "${nodeTypes[$node]}" ]
+    then printf "%s\n" "$node"
+    fi
+  done
+}
+
+children() {
+  local filter node IFS
+  local -a nodes
+  local -i prefix
+  IFS=$' '
+  node="$1"
+  prefix="${#node}"
+  filter="$2"
+  
+  if [ "${node:0-1}" != ":" ]
+  then prefix=$((prefix+1))
+  fi
+  
+  read -ra nodes <<< "${childNodes[$node]}"
+  for node in "${nodes[@]}"
+  do
+    if [ "$filter" = "" ]
+    then printf "%s\n" "${node:$prefix}"
+    elif [ "$filter" = "${nodeTypes[$node]}" ]
+    then printf "%s\n" "${node:$prefix}"
+    fi
+  done
+}
+
+nonEmpty() {
+  if [ "$1" = "" ]
+  then
+    printf "%s\n" "$2"
+    exit 1
+  fi
+}
+
+values() {
+  local address
+  local -a data
+  address="$1"
+  nonEmpty "$address" "Cannot access values for empty node"
+  read -ra data <<< "${values[$address]}"
+  for datum in "${data[@]}"
+  do printf "%s\n" "$datum"
+  done
+}
+# end codl.sh
 
 group[dotty]="lampepfl"
 esc=$'\e'
@@ -87,7 +242,7 @@ fetch() {
 clean() {
   case "$clean" in
     1)
-      message "$module"/"$component" "Cleaning"
+      message "$project"/"$module" "Cleaning"
       rm -rf .wrath/bin/"$target" .wrath/cache/"$target" .wrath/log/"$target"
       ;;
     2)
@@ -123,7 +278,7 @@ checkCompiler() {
 }
 
 mkdirs() {
-  mkdir -p .wrath/bin dist .wrath/cache .wrath/log .wrath/plugins .wrath/lib
+  mkdir -p .wrath/bin dist .wrath/cache .wrath/log .wrath/plugin .wrath/lib
 }
 
 setChecksum() {
@@ -164,83 +319,43 @@ readConfig() {
   fi
 }
 
-readToml() {
-  local file dir section IFS isMain buildModule buildComponent
-  local -i lineNo
-  
+readCodl() {
+  local buildProject buildModule file ref IFS project module
+  local -i isMain
   IFS=$'\n'
-  buildModule="$1"
-  buildComponent="$2"
+  buildProject="$1"
+  buildModule="$2"
   file="$3"
   isMain="$4"
-  lineNo=0
-  
+
   if [ ! "${parsed[$file]}" = "1" ]
   then
     if [ ! "$isMain" = "1" ]
-    then message "$buildModule"/"$buildComponent" "Reading build"
+    then message "$buildProject"/"$buildModule" "Reading build"
     fi
-    
-    while read -r line
+    parseCodl "$file"
+
+    if [ "$isMain" = "1" ]
+    then target="$(values "$file:target")"
+    fi
+
+    for project in $(children "$file:" project)
     do
-      lineNo=$((lineNo+1))
-      case "$line" in
-        '#'*)
-	  ;;
-        '['*'/'*']')
-          section="${line:1:-1}"
-          ;;
-        '['*']')
-	  if [ "$isMain" = "1" ]
-	  then main="${line:1:-1}"
-	  fi
-	  ;;
-        '')
-          ;;
-        'target = '*)
-          if [ "$main" = "" ]
-          then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'target' should be inside a main section"
-          elif [ "$target" = "" ]
-	  then target="${line:9}"
-          fi
-	  ;;
-        'repos = '*)
-          if [ "$main" = "" ]
-          then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'repos' should be inside a main section"
-          else setRepoGroups "${line:8}"
-          fi
-          ;;
-        'main = '*)
-          if [ "$section" = "" ]
-          then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'main' should be inside a module section"
-          else mainClass[$section]="${line:7}"
-          fi
-          ;;
-        'lib = '*)
-          if [ "$section" = "" ]
-          then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'lib' should be inside a module section"
-          else jars[$section]="${line:6}"
-          fi
-          ;;
-        'src = '*)
-          if [ "$section" = "" ]
-          then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'src' should be inside a module section"
-          else sources[$section]="${line:6}"
-          fi
-          ;;
-        'refs = '*)
-          if [ "$section" = "" ]
-          then fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo: 'refs' should be inside a module section"
-          else refs[$section]="${line:7}"
-          fi
-          ;;
-        *)
-          fail "$buildModule" "$buildComponent" "Invalid configuration at line $lineNo."
-          ;;
-      esac
-    done < "$file"
-    parsed[$file]="1"
+      for module in $(children "$file:$project" module)
+      do
+        mainClass["$project/$module"]="$(values "$file:$project.$module.main")"
+        jars["$project/$module"]="$(values "$file:$project.$module.lib")"
+        sources["$project/$module"]="$(values "$file:$project.$module.sources")"
+        include["$project/$module"]="$(values "$file:$project.$module.include")"
+        
+        if [ "$(values "$file:$project.$module.plugin")" = "yes" ]
+        then plugin["$project/$module"]="1"
+        fi
+
+      done
+    done
   fi
+  parsed[$file]="1"
 }
 
 setRepoGroups() {
@@ -268,7 +383,7 @@ classpath() {
       acc+=(.wrath/lib/"${jar##*/}")
     done
     
-    read -ra dependencies <<< "${refs[$id]}"
+    read -ra dependencies <<< "${include[$id]}"
     for ref in "${dependencies[@]}"
     do classpath "$ref"
     done
@@ -285,31 +400,31 @@ classpath() {
 }
 
 build() {
-  local IFS id buildModule buildComponent root srcDir chksum
+  local IFS id buildProject buildModule root srcDir chksum
   
   id="$1"
-  buildModule="${id%%/*}"
-  buildComponent="${id##*/}"
+  buildProject="${id%%/*}"
+  buildModule="${id##*/}"
   
-  if [ "$buildModule" = "$main" ]
+  if [ "$buildProject" = "$main" ]
   then root="$(realpath .)"
-  else root="$(realpath "$buildModule")"
+  else root="$(realpath "$buildProject")"
   fi
 
   IFS=' '
 
   if [ ! -d "$root" ]
   then
-    if [ -d "$defaultDir"/"$buildModule" ]
-    then root="$(realpath "$defaultDir"/"$buildModule")"
+    if [ -d "$defaultDir"/"$buildProject" ]
+    then root="$(realpath "$defaultDir"/"$buildProject")"
     else
       if [ ! "$fetch" = "" ]
       then
-        message "$buildModule"/"$buildComponent" "Cloning Git repository"
-        fetch "$buildModule"
+        message "$buildProject"/"$buildModule" "Cloning Git repository"
+        fetch "$buildProject"
       else
-        message "$buildModule"/"$buildComponent" "Module not found"
-        fail "$buildModule" "$buildComponent" "Try again with -f or create a symlink to $root."
+        message "$buildProject"/"$buildModule" "Module not found"
+        fail "$buildProject" "$buildModule" "Try again with -f or create a symlink to $root."
       fi
     fi
   fi
@@ -317,15 +432,15 @@ build() {
   fetchLibs "$id"
 
   if [ ! -e "$root"/build.wrath ]
-  then fail "$buildModule" "$buildComponent" "Build file $root/build.wrath does not exist"
-  else readToml "$buildModule" "$buildComponent" "$root"/build.wrath
+  then fail "$buildProject" "$buildModule" "Build file $root/build.wrath does not exist"
+  else readCodl "$buildProject" "$buildModule" "$root"/build.wrath
   fi
   
   if [ ! "${built[$id]}" = "1" ]
   then
     if [ "${pids[$id]}" = "" ]
     then
-      read -ra dependencies <<< "${refs[$id]}"
+      read -ra dependencies <<< "${include[$id]}"
       for ref in "${dependencies[@]}"
       do build "$ref"
       done
@@ -336,29 +451,29 @@ build() {
         then wait "${pids[$ref]}"
         fi
       done
-      srcDir="$root/${sources[$buildModule/$buildComponent]}"
+      srcDir="$root/${sources[$buildProject/$buildModule]}"
       chksum="$(cat .wrath/cache/"$id" 2>/dev/null)"
       setChecksum "${srcDir}"
       if [ ! "$chksum" = "${hashes[$srcDir]}" ]
       then
-        message "$buildModule"/"$buildComponent" "Compiling with Scala"
-        mkdir -p .wrath/bin/"$buildModule"/"$buildComponent"
+        mkdir -p .wrath/bin/"$buildProject"/"$buildModule"
         if [ -d "$root/res" ]
         then
           for res in "$root"/res/*
-          do cp -r "$res" .wrath/bin/"$buildModule"/"$buildComponent"/
+          do cp -r "$res" .wrath/bin/"$buildProject"/"$buildModule"/
           done
         fi
         classpath "$id"
         classpath="${lib[$id]// /:}"
-        rm -f .wrath/log/"$buildModule"/"$buildComponent".log
-        compile "$buildModule" "$buildComponent" "$classpath" "$root"
+        rm -f .wrath/log/"$buildProject"/"$buildModule".log
+        compile "$buildProject" "$buildModule" "$classpath" "$root"
         pids[$id]="$!"
-        
-	if [ -f "$root"/res/plugin.properties ]
+  
+        if [ "${plugin[$buildProject/$buildModule]}" = "1" ]
+	      #if [ -f "$root"/res/plugin.properties ]
         then
-	  message "$buildModule"/"$buildComponent" "Installing plugin"
-	  cp dist/"$buildModule"-"$buildComponent".jar .wrath/plugins/"$buildModule"-"$buildComponent".jar
+	        message "$buildProject"/"$buildModule" "Installing plugin"
+	        cp dist/"$buildProject"-"$buildModule".jar .wrath/plugin/"$buildProject"-"$buildModule".jar
         fi
       fi
     fi
@@ -366,21 +481,21 @@ build() {
 }
 
 compile() {
-  local classpath buildModule buildComponent root srcDir
+  local classpath buildProject buildModule root srcDir
   local -i pageWidth
   local -a opts
-  buildModule="$1"
-  buildComponent="$2"
+  buildProject="$1"
+  buildModule="$2"
   classpath="$3"
   pageWidth=$((columns - 21))
   root="$4"
-  srcDir="${sources[$buildModule/$buildComponent]}"
+  srcDir="${sources[$buildProject/$buildModule]}"
 
   opts=(
     -classpath "$classpath"
-    -d .wrath/bin/"$buildModule"/"$buildComponent"
+    -d .wrath/bin/"$buildProject"/"$buildModule"
     -Xmax-inlines 64
-    -Xpluginsdir .wrath/plugins
+    -Xpluginsdir .wrath/plugin
     -feature
     -pagewidth "$pageWidth"
     -J-Xss1536K
@@ -399,28 +514,29 @@ compile() {
     -language:experimental.namedTypeArguments
   )
 
-  rm -f .wrath/log/"$buildModule"-"$buildComponent".log
-  touch .wrath/log/"$buildModule"-"$buildComponent".log
+  rm -f .wrath/log/"$buildProject"-"$buildModule".log
+  touch .wrath/log/"$buildProject"-"$buildModule".log
   if compgen -G "$root"/"$srcDir"/*.scala > /dev/null
   then
-    if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala > .wrath/log/"$buildModule"-"$buildComponent".log 2>&1
+    message "$buildProject"/"$buildModule" "Compiling..."
+    if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala > .wrath/log/"$buildProject"-"$buildModule".log 2>&1
     then
-      mkdir -p .wrath/cache/"$buildModule"
+      mkdir -p .wrath/cache/"$buildProject"
       echo "${hashes[$root/$srcDir]}" > .wrath/cache/"$id"
       built[$id]="1"
-      message "$buildModule"/"$buildComponent" "Finished compiling"
+      message "$buildProject"/"$buildModule" "Finished compiling"
     
       while read -r line
-      do message "$buildModule"/"$buildComponent" "$line"
-      done < .wrath/log/"$buildModule"-"$buildComponent".log
+      do message "$buildProject"/"$buildModule" "$line"
+      done < .wrath/log/"$buildProject"-"$buildModule".log
 
-      package dist/"$buildModule"-"$buildComponent".jar .wrath/bin/"$buildModule"/"$buildComponent"
+      package dist/"$buildProject"-"$buildModule".jar .wrath/bin/"$buildProject"/"$buildModule"
     else
-      message "$buildModule"/"$buildComponent" "Compilation failed"
+      message "$buildProject"/"$buildModule" "Compilation failed"
     
       while read -r line
-      do message "$buildModule"/"$buildComponent" "$line"
-      done < .wrath/log/"$buildModule"-"$buildComponent".log
+      do message "$buildProject"/"$buildModule" "$line"
+      done < .wrath/log/"$buildProject"-"$buildModule".log
     
       exit 1
     fi
@@ -440,12 +556,12 @@ gmessage() {
 }
 
 message() {
-  local id module component text prefix
+  local id bproject bmodule text prefix
   id="$1"
-  module="${id%%/*}"
-  component="${id##*/}"
+  bproject="${id%%/*}"
+  bmodule="${id##*/}"
   text="$2"
-  prefix="${esc}[0;36m$module${esc}[2;37m/${esc}[1;34m$component${esc}[2;37m:${esc}[0m"
+  prefix="${esc}[0;36m$bproject${esc}[2;37m/${esc}[1;34m$bmodule${esc}[2;37m:${esc}[0m"
   printf "%52s %s\n" "$prefix" "$text"
 }
 
@@ -511,14 +627,26 @@ checkTarget() {
   fi
 }
 
+identifier[project]=1
+identifier[repo]=1
+identifier[module]=1
+identifier[include]=0
+identifier[opt]=0
+identifier[sources]=0
+identifier[plugin]=0
+identifier[lib]=0
+identifier[target]=0
+identifier[main]=0
+
 parseOpts "$@"
 gmessage "Reading global config"
 readConfig
 gmessage "Starting build"
-readToml "$module" "$component" "build.wrath" 1
+workDir="$(realpath "$PWD")"
+readCodl "$project" "$module" "$workDir"/build.wrath 1
 
-module="${target%%/*}"
-component="${target##*/}"
+project="${target%%/*}"
+module="${target##*/}"
 
 clean
 mkdirs
@@ -533,8 +661,9 @@ then
   classpath="${lib[$target]// /:}"
   execClass="${overrideMain:-${mainClass[$target]}}"
   if [ "$execClass" = "" ]
-  then fail "$module" "$component" "Main class has not been specified."
-  else "$scala" -classpath "${classpath}"dist/"$module"-"$component".jar "$execClass"
+  then fail "$project" "$module" "Main class has not been specified."
+  else
+    "$scala" -classpath "${classpath}"dist/"$project"-"$module".jar "$execClass"
   fi
 fi
 
@@ -542,5 +671,5 @@ if [ "$repl" = "1" ]
 then
   classpath "$target"
   classpath="${lib[$target]// /:}"
-  "$scala" -classpath "${classpath}"dist/"$module"-"$component".jar
+  "$scala" -classpath "${classpath}"dist/"$project"-"$module".jar
 fi
