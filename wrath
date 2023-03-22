@@ -105,10 +105,11 @@ parseLine() {
 }
 
 parseCodl() {
-  local file
+  local file IFS
   file="$1"
+  filename="$file"
   while IFS=$'\n' read -r line
-  do parseLine "$file" "$line"
+  do parseLine "$filename" "$line"
   done < "$file"
 }
 
@@ -260,7 +261,7 @@ checkCompiler() {
   else
     if [ -d "$defaultDir"/scala ]
     then compiler="$(realpath "$defaultDir"/scala)"
-    elif [ "$fetch" = "2" ]
+    elif [ "$fetch" = 2 ]
     then
       compiler="$(realpath scala)"
       gmessage "Fetching Scala compiler"
@@ -368,17 +369,6 @@ readCodl() {
   parsed[$file]="1"
 }
 
-setRepoGroups() {
-  local IFS
-  local -a repos
-  IFS=' '
-  read -ra repos <<< "$1"
-  
-  for repo in "${repos[@]}"
-  do group[${repo##*/}]="${repo%%/*}"
-  done
-}
-
 classpath() {
   local IFS id
   local -a acc dependencies dedup
@@ -428,7 +418,7 @@ build() {
     if [ -d "$defaultDir"/"$bproject" ]
     then root="$(realpath "$defaultDir"/"$bproject")"
     else
-      if [ "$fetch" = "" ]
+      if [[ -z $fetch ]]
       then
         message "$bproject"/"$bmodule" "Module not found"
         fail "$bproject" "$bmodule" "Try again with -f or create a symlink to $root."
