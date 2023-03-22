@@ -15,7 +15,7 @@
 #   and limitations under the License.
 #
 
-declare -g -A include built parsed pids hashes lib sources mainClass jars plugin
+declare -g -A include built parsed pids hashes lib sources mainClass jars plugin repoSeen
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
 declare -g project module buildFile
 declare -i columns
@@ -179,6 +179,7 @@ esc=$'\e'
 columns=${COLUMNS:-116}
 configFile="${XDG_CONFIG_HOME:-$HOME/.config}/wrath.conf"
 buildFile="fury"
+fetch=0
 
 nonempty() {
   if [ "$2" = "" ]
@@ -239,7 +240,7 @@ fetchRepo() {
   dest="$2"
   if [ ! -d "$dest" ]
   then
-    gmessage "Cloning Git repository $repo"
+    rmessage "$repo" "Cloning Git repository"
     git clone -q https://github.com/"$repo" "$dest"
   fi
 }
@@ -326,18 +327,17 @@ readConfig() {
 }
 
 readCodl() {
-  local bproject bmodule file ref IFS project module
+  local brepo file ref IFS project module repoDir
   local -i isMain
   IFS=$'\n'
-  bproject="$1"
-  bmodule="$2"
-  file="$3"
-  isMain="$4"
+  brepo="$1"
+  file="$2"
+  isMain="$3"
 
   if [ ! "${parsed[$file]}" = "1" ]
   then
     if [ ! "$isMain" = "1" ]
-    then message "$bproject"/"$bmodule" "Reading build"
+    then rmessage "$brepo" "Reading build file"
     fi
     parseCodl "$file"
 
@@ -348,7 +348,14 @@ readCodl() {
     if [ "$fetch" -ge "1" ]
     then
       for repo in $(children "$file:" repo)
-      do fetchRepo "$repo" "${repo#*/}"
+      do
+        if [ ! "${repoSeen[$repo]}" = "1" ]
+        then
+          repoDir="${repo#*/}"
+          fetchRepo "$repo" "$workDir"/"$repoDir"
+          repoSeen["$repo"]="1"
+          readCodl "$repo" "$workDir"/"$repoDir"/"$buildFile"
+        fi
       done
     fi
 
@@ -367,8 +374,8 @@ readCodl() {
 
       done
     done
+    parsed[$file]="1"
   fi
-  parsed[$file]="1"
 }
 
 classpath() {
@@ -430,10 +437,10 @@ build() {
 
   fetchLibs "$id"
 
-  if [ ! -e "$root"/"$buildFile" ]
-  then fail "$bproject" "$bmodule" "Build file $root/$buildFile does not exist"
-  else readCodl "$bproject" "$bmodule" "$root"/"$buildFile"
-  fi
+  # if [ ! -e "$root"/"$buildFile" ]
+  # then fail "$bproject" "$bmodule" "Build file $root/$buildFile does not exist"
+  # else readCodl "$bproject" "$root"/"$buildFile"
+  # fi
   
   if [ ! "${built[$id]}" = "1" ]
   then
@@ -551,7 +558,7 @@ gmessage() {
   local text prefix
   text="$1"
   prefix="${esc}[1;32mwrath${esc}[2;37m:${esc}[0m"
-  printf "%38s %s\n" "$prefix" "$text"
+  printf "%48s %s\n" "$prefix" "$text"
 }
 
 message() {
@@ -561,7 +568,17 @@ message() {
   bmodule="${id##*/}"
   text="$2"
   prefix="${esc}[0;36m$bproject${esc}[2;37m/${esc}[1;34m$bmodule${esc}[2;37m:${esc}[0m"
-  printf "%52s %s\n" "$prefix" "$text"
+  printf "%62s %s\n" "$prefix" "$text"
+}
+
+rmessage() {
+  local id bgroup brepo text prefix
+  id="$1"
+  bgroup="${id%%/*}"
+  brepo="${id##*/}"
+  text="$2"
+  prefix="${esc}[0;31m$bgroup${esc}[2;37m/${esc}[0;35m$brepo${esc}[2;37m:${esc}[0m"
+  printf "%62s %s\n" "$prefix" "$text"
 }
 
 parseOpts() {
@@ -632,8 +649,11 @@ identifier[module]=1
 identifier[include]=0
 identifier[opt]=0
 identifier[sources]=0
+identifier[compiler]=0
 identifier[plugin]=0
 identifier[lib]=0
+identifier[name]=0
+identifier[description]=0
 identifier[target]=0
 identifier[main]=0
 
@@ -642,7 +662,7 @@ gmessage "Reading global config"
 readConfig
 gmessage "Starting build"
 workDir="$(realpath "$PWD")"
-readCodl "$project" "$module" "$workDir"/"$buildFile" 1
+readCodl "$project/*" "$workDir"/"$buildFile" 1
 
 project="${target%%/*}"
 module="${target##*/}"
