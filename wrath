@@ -16,7 +16,8 @@
 #
 
 declare -g -A include built parsed pids hashes lib sources mainClass jars plugin
-declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir project module
+declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
+declare -g project module buildFile
 declare -i columns
 
 # start codl.sh
@@ -177,6 +178,7 @@ values() {
 esc=$'\e'
 columns=${COLUMNS:-116}
 configFile="${XDG_CONFIG_HOME:-$HOME/.config}/wrath.conf"
+buildFile="fury"
 
 nonempty() {
   if [ "$2" = "" ]
@@ -428,9 +430,9 @@ build() {
 
   fetchLibs "$id"
 
-  if [ ! -e "$root"/build.wrath ]
-  then fail "$bproject" "$bmodule" "Build file $root/build.wrath does not exist"
-  else readCodl "$bproject" "$bmodule" "$root"/build.wrath
+  if [ ! -e "$root"/"$buildFile" ]
+  then fail "$bproject" "$bmodule" "Build file $root/$buildFile does not exist"
+  else readCodl "$bproject" "$bmodule" "$root"/"$buildFile"
   fi
   
   if [ ! "${built[$id]}" = "1" ]
@@ -640,7 +642,7 @@ gmessage "Reading global config"
 readConfig
 gmessage "Starting build"
 workDir="$(realpath "$PWD")"
-readCodl "$project" "$module" "$workDir"/build.wrath 1
+readCodl "$project" "$module" "$workDir"/"$buildFile" 1
 
 project="${target%%/*}"
 module="${target##*/}"
