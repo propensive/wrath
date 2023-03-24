@@ -360,7 +360,10 @@ readCodl() {
 	if [ ! -d "$repoDir" ]
 	then 
           if [ "$fetch" -ge "1" ]
-          then fetchRepo "$repo" "$repoDir"
+          then
+	    fetchRepo "$repo" "$repoDir"
+            repoSeen["$repo"]="1"
+            readCodl "$repo" "$repoDir"/"$buildFile"
 	  else
 	    rmessage "$repo" "Repository not found"
 	    rmessage "$repo" "Run wrath with -f to fetch missing repositories, or create a symlink to $repo in the current directory"
