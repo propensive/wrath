@@ -15,7 +15,7 @@
 #   and limitations under the License.
 #
 
-declare -g -A include built parsed pids hashes lib sources mainClass jars plugin repoSeen building
+declare -g -A include built parsed hashes lib sources mainClass jars plugin repoSeen building download
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
 declare -g project module buildFile
 declare -i columns
@@ -220,17 +220,22 @@ fetchLibs() {
   local -a libs
   IFS=" "
   id="$1"
-  read -ra libs <<< "${jars[$1]}"
-  
+  read -ra libs <<< "${jars[$id]}"
+
   for url in "${libs[@]}"
-  do download "$url"
+  do
+    if [ ! -f ".wrath/lib/$url.jar" ]
+    then
+      message "$id" "Downloading $url"
+      download "${download[$url]}" "${url}.jar"
+    fi
   done
 }
 
 download() {
   local filename url
   url="$1"
-  filename="${url##*/}"
+  filename="$2"
   wget -q -O .wrath/lib/"$filename" "$url"
 }
 
@@ -328,8 +333,9 @@ readConfig() {
 }
 
 readCodl() {
-  local brepo file ref IFS project module repoDir
+  local brepo file ref IFS project module repoDir lib
   local -i isMain
+  local -a libDetails
   IFS=$'\n'
   brepo="$1"
   file="$2"
@@ -371,8 +377,14 @@ readCodl() {
     do
       for module in $(children "$file:$project" module)
       do
+        for lib in $(children "$file:$project.$module" lib)
+	do
+          IFS=$' '
+	  libDetails=( ${values["$file:$project.$module.$lib"]} )
+	  download["${libDetails[0]}"]="${libDetails[1]}"
+	  jars["$project/$module"]+="${libDetails[0]} "
+	done
         mainClass["$project/$module"]="$(values "$file:$project.$module.main")"
-        jars["$project/$module"]="$(values "$file:$project.$module.lib")"
         sources["$project/$module"]="$(values "$file:$project.$module.sources")"
         include["$project/$module"]="$(values "$file:$project.$module.include")"
         
@@ -395,8 +407,7 @@ classpath() {
   then
     read -ra libs <<< "${jars[$id]}"
     for jar in "${libs[@]}"
-    do
-      acc+=(.wrath/lib/"${jar##*/}")
+    do acc+=(.wrath/lib/"${jar##*/}.jar")
     done
     
     read -ra dependencies <<< "${include[$id]}"
@@ -631,7 +642,7 @@ identifier[opt]=0
 identifier[sources]=0
 identifier[compiler]=0
 identifier[plugin]=0
-identifier[lib]=0
+identifier[lib]=1
 identifier[name]=0
 identifier[description]=0
 identifier[target]=0
@@ -661,8 +672,7 @@ then
   execClass="${overrideMain:-${mainClass[$target]}}"
   if [ "$execClass" = "" ]
   then fail "$project" "$module" "Main class has not been specified."
-  else
-    "$scala" -classpath "${classpath}"dist/"$project"-"$module".jar "$execClass"
+  else "$scala" -classpath "${classpath}"dist/"$project"-"$module".jar "$execClass"
   fi
 fi
 
