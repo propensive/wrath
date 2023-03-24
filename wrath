@@ -15,7 +15,7 @@
 #   and limitations under the License.
 #
 
-declare -g -A include built parsed hashes lib sources mainClass jars plugin repoSeen building download
+declare -g -A include parsed hashes lib sources mainClass jars plugin repoSeen building download
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
 declare -g project module buildFile
 declare -i columns
@@ -523,7 +523,6 @@ compile() {
     then
       mkdir -p .wrath/cache/"$bproject"
       echo "${hashes[$root/$srcDir]}" > .wrath/cache/"$id"
-      built[$id]="1"
       message "$bproject"/"$bmodule" "Finished compiling"
     
       while read -r line
