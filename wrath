@@ -15,7 +15,7 @@
 #   and limitations under the License.
 #
 
-declare -g -A include built parsed pids hashes lib sources mainClass jars plugin repoSeen
+declare -g -A include built parsed pids hashes lib sources mainClass jars plugin repoSeen building
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
 declare -g project module buildFile
 declare -i columns
@@ -322,6 +322,7 @@ readConfig() {
   then
     if [ -e "$configFile" ]
     then defaultDir="$(cat "$configFile")"
+    else defaultDir="$workDir"
     fi
   fi
 }
@@ -333,31 +334,38 @@ readCodl() {
   brepo="$1"
   file="$2"
   isMain="$3"
-
   if [ ! "${parsed[$file]}" = "1" ]
   then
     if [ ! "$isMain" = "1" ]
     then rmessage "$brepo" "Reading build file"
     fi
+    parsed[$file]="1"
     parseCodl "$file"
 
     if [ "$isMain" = "1" ]
     then target="$(values "$file:target")"
     fi
 
-    if [ "$fetch" -ge "1" ]
-    then
-      for repo in $(children "$file:" repo)
-      do
-        if [ ! "${repoSeen[$repo]}" = "1" ]
-        then
-          repoDir="${repo#*/}"
-          fetchRepo "$repo" "$workDir"/"$repoDir"
+    for repo in $(children "$file:" repo)
+    do
+      if [ ! "${repoSeen[$repo]}" = "1" ]
+      then
+        repoDir="$defaultDir/${repo#*/}"
+	if [ ! -d "$repoDir" ]
+	then 
+          if [ "$fetch" -ge "1" ]
+          then fetchRepo "$repo" "$repoDir"
+	  else
+	    rmessage "$repo" "Repository not found"
+	    rmessage "$repo" "Run wrath with -f to fetch missing repositories, or create a symlink to $repo in the current directory"
+	    exit 1
+          fi
+	else
           repoSeen["$repo"]="1"
-          readCodl "$repo" "$workDir"/"$repoDir"/"$buildFile"
-        fi
-      done
-    fi
+          readCodl "$repo" "$repoDir"/"$buildFile"
+	fi
+      fi
+    done
 
     for project in $(children "$file:" project)
     do
@@ -374,7 +382,6 @@ readCodl() {
 
       done
     done
-    parsed[$file]="1"
   fi
 }
 
@@ -417,70 +424,43 @@ build() {
   
   if [ "$bproject" = "$project" ]
   then root="$(realpath .)"
-  else root="$(realpath "$bproject")"
+  else root="$(realpath "$defaultDir/$bproject")"
   fi
 
   IFS=' '
 
-  if [ ! -d "$root" ]
-  then
-    if [ -d "$defaultDir"/"$bproject" ]
-    then root="$(realpath "$defaultDir"/"$bproject")"
-    else
-      if [[ -z $fetch ]]
-      then
-        message "$bproject"/"$bmodule" "Module not found"
-        fail "$bproject" "$bmodule" "Try again with -f or create a symlink to $root."
-      fi
-    fi
-  fi
-
   fetchLibs "$id"
 
-  # if [ ! -e "$root"/"$buildFile" ]
-  # then fail "$bproject" "$bmodule" "Build file $root/$buildFile does not exist"
-  # else readCodl "$bproject" "$root"/"$buildFile"
-  # fi
-  
-  if [ ! "${built[$id]}" = "1" ]
+  if [ ! "${building[$id]}" = "1" ]
   then
-    if [ "${pids[$id]}" = "" ]
+    read -ra dependencies <<< "${include[$id]}"
+    building[$id]="1"
+    for ref in "${dependencies[@]}"
+    do build "$ref"
+    done
+    
+    
+    srcDir="$root/${sources[$bproject/$bmodule]}"
+    chksum="$(cat .wrath/cache/"$id" 2>/dev/null)"
+    setChecksum "${srcDir}"
+    if [ ! "$chksum" = "${hashes[$srcDir]}" ]
     then
-      read -ra dependencies <<< "${include[$id]}"
-      for ref in "${dependencies[@]}"
-      do build "$ref"
-      done
-      
-      for ref in "${dependencies[@]}"
-      do
-        if [ ! "${pids[$ref]}" = "" ]
-        then wait "${pids[$ref]}"
-        fi
-      done
-      srcDir="$root/${sources[$bproject/$bmodule]}"
-      chksum="$(cat .wrath/cache/"$id" 2>/dev/null)"
-      setChecksum "${srcDir}"
-      if [ ! "$chksum" = "${hashes[$srcDir]}" ]
+      mkdir -p .wrath/bin/"$bproject"/"$bmodule"
+      if [ -d "$root/res" ]
       then
-        mkdir -p .wrath/bin/"$bproject"/"$bmodule"
-        if [ -d "$root/res" ]
-        then
-          for res in "$root"/res/*
-          do cp -r "$res" .wrath/bin/"$bproject"/"$bmodule"/
-          done
-        fi
-        classpath "$id"
-        classpath="${lib[$id]// /:}"
-        rm -f .wrath/log/"$bproject"/"$bmodule".log
-        compile "$bproject" "$bmodule" "$classpath" "$root"
-        pids[$id]="$!"
+        for res in "$root"/res/*
+        do cp -r "$res" .wrath/bin/"$bproject"/"$bmodule"/
+        done
+      fi
+      classpath "$id"
+      classpath="${lib[$id]// /:}"
+      rm -f .wrath/log/"$bproject"/"$bmodule".log
+      compile "$bproject" "$bmodule" "$classpath" "$root"
   
-        if [ "${plugin[$bproject/$bmodule]}" = "1" ]
-	      #if [ -f "$root"/res/plugin.properties ]
-        then
-	        message "$bproject"/"$bmodule" "Installing plugin"
-	        cp dist/"$bproject"-"$bmodule".jar .wrath/plugin/"$bproject"-"$bmodule".jar
-        fi
+      if [ "${plugin[$bproject/$bmodule]}" = "1" ]
+      then
+        message "$bproject"/"$bmodule" "Installing plugin"
+        cp dist/"$bproject"-"$bmodule".jar .wrath/plugin/"$bproject"-"$bmodule".jar
       fi
     fi
   fi
