@@ -650,9 +650,9 @@ identifier[main]=0
 
 parseOpts "$@"
 gmessage "Reading global config"
+workDir="$(realpath "$PWD")"
 readConfig
 gmessage "Starting build"
-workDir="$(realpath "$PWD")"
 readCodl "$project/*" "$workDir"/"$buildFile" 1
 
 project="${target%%/*}"
