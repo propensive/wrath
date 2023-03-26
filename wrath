@@ -17,7 +17,7 @@
 
 declare -g -A include parsed hashes lib sources mainClass jars plugin repoSeen building download
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
-declare -g project module buildFile
+declare -g project module buildFile cacheDir configFile garbageCollect
 declare -i columns
 
 # start codl.sh
@@ -178,6 +178,8 @@ values() {
 esc=$'\e'
 columns=${COLUMNS:-116}
 configFile="${XDG_CONFIG_HOME:-$HOME/.config}/wrath.conf"
+cacheDir="${XDG_CACHE_HOME:-$HOME/.cache}/wrath/dist"
+distDir=.wrath/dist
 buildFile="fury"
 fetch=0
 
@@ -200,8 +202,10 @@ Options:
   -d, --default <dir>      look inside directory <dir> for dependencies
   -f, --fetch              automatically fetch missing dependencies
   -F, --fetch-all          automatically fetch missing dependencies and compiler
+  -g, --garbage-collect    remove orphaned cache files
   -h, --help               show this help message
   -j, --jdk <path>         use the JDK with home directory at <path>
+  -o, --output             specify an output directory
   -r, --repl               start the REPL
   -t, --target <target>    target to compile
   -x, --exec <class>       run the main class <class>
@@ -251,6 +255,15 @@ fetchRepo() {
 }
 
 clean() {
+  local file
+  local -i count
+  
+  if [ "$garbageCollect" = "1" ]
+  then
+    gmessage "Garbage collecting orphan files"
+    find "$cacheDir" -links 1 -exec rm -- '{}' '+'
+  fi
+
   case "$clean" in
     1)
       message "$project"/"$module" "Cleaning"
@@ -290,17 +303,26 @@ checkCompiler() {
 }
 
 mkdirs() {
-  mkdir -p .wrath/bin dist .wrath/cache .wrath/log .wrath/plugin .wrath/lib
+  mkdir -p .wrath/bin "$distDir" "$cacheDir" .wrath/log .wrath/plugin .wrath/lib
 }
 
 setChecksum() {
-  local dir
-  dir="$1"
-  if [ "${hashes[$dir]}" = "" ]
+  local id srcDir inputs inputHashes
+  id="$1"
+  srcDir="$root/${sources[$id]}"
+  
+  if [ "${hashes[$id]}" = "" ]
   then
-    if compgen -G "$dir"/*.scala > /dev/null
-    then hashes[$dir]="$(cat "$dir"/*.scala | md5sum | cut -d' ' -f1)"
-    else hashes[$dir]="0"
+    read -ra inputs <<< "${include[$id]}"
+    for input in "${inputs[@]}"
+    do
+      setChecksum "$input"
+      inputHashes+="${hashes[$input]}"
+    done
+
+    if compgen -G "$srcDir"/*.scala > /dev/null
+    then hashes[$id]="$( (echo "$inputHashes" && cat "$srcDir"/*.scala) | md5sum | cut -d' ' -f1)"
+    else hashes[$id]="0"
     fi
   fi
 }
@@ -420,7 +442,7 @@ classpath() {
     
     for ref in "${dependencies[@]}"
     do
-      acc+=(dist/"${ref//\//-}".jar)
+      acc+=("$distDir"/"${ref//\//-}".jar)
       acc+=("${lib[$ref]}")
     done
 
@@ -454,10 +476,9 @@ build() {
     done
     
     
-    srcDir="$root/${sources[$bproject/$bmodule]}"
     chksum="$(cat .wrath/cache/"$id" 2>/dev/null)"
-    setChecksum "${srcDir}"
-    if [ ! "$chksum" = "${hashes[$srcDir]}" ]
+    setChecksum "$id"
+    if [ ! "$chksum" = "${hashes[$id]}" ]
     then
       mkdir -p .wrath/bin/"$bproject"/"$bmodule"
       if [ -d "$root/res" ]
@@ -469,25 +490,29 @@ build() {
       classpath "$id"
       classpath="${lib[$id]// /:}"
       rm -f .wrath/log/"$bproject"/"$bmodule".log
-      compile "$bproject" "$bmodule" "$classpath" "$root"
+      if [ -f "$cacheDir/${hashes[$id]}.jar" ]
+      then ln -f "$cacheDir"/"${hashes[$id]}.jar" "$distDir"/"${bproject}"-"${bmodule}".jar
+      else compile "$bproject" "$bmodule" "$classpath" "$root"
+      fi
   
       if [ "${plugin[$bproject/$bmodule]}" = "1" ]
       then
         message "$bproject"/"$bmodule" "Installing plugin"
-        cp dist/"$bproject"-"$bmodule".jar .wrath/plugin/"$bproject"-"$bmodule".jar
+        cp "$distDir"/"$bproject"-"$bmodule".jar .wrath/plugin/"$bproject"-"$bmodule".jar
       fi
     fi
   fi
 }
 
 compile() {
-  local classpath bproject bmodule root srcDir
+  local classpath bproject bmodule root srcDir id
   local -i pageWidth
   local -a opts
   bproject="$1"
   bmodule="$2"
+  id="$bproject"/"$bmodule"
   classpath="$3"
-  pageWidth=$((columns - 21))
+  pageWidth=$((columns - 31))
   root="$4"
   srcDir="${sources[$bproject/$bmodule]}"
 
@@ -522,16 +547,16 @@ compile() {
     if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala > .wrath/log/"$bproject"-"$bmodule".log 2>&1
     then
       mkdir -p .wrath/cache/"$bproject"
-      echo "${hashes[$root/$srcDir]}" > .wrath/cache/"$id"
       message "$bproject"/"$bmodule" "Finished compiling"
     
       while read -r line
       do message "$bproject"/"$bmodule" "$line"
       done < .wrath/log/"$bproject"-"$bmodule".log
 
-      package dist/"$bproject"-"$bmodule".jar .wrath/bin/"$bproject"/"$bmodule"
+      package "$cacheDir"/"${hashes["$id"]}".jar .wrath/bin/"$bproject"/"$bmodule"
+      ln -f "$cacheDir"/"${hashes["$id"]}".jar "${distDir}"/"$bproject"-"$bmodule".jar
     else
-      message "$bproject"/"$bmodule" "Compilation failed"
+      message "$id" "Compilation failed"
     
       while read -r line
       do message "$bproject"/"$bmodule" "$line"
@@ -591,8 +616,11 @@ parseOpts() {
       -f|--fetch)
         fetch="1"
         shift 1 ;;
-      -F|--fetch-alll)
+      -F|--fetch-all)
         fetch="2"
+        shift 1 ;;
+      -g|--garbage-collect)
+        garbageCollect="1"
         shift 1 ;;
       -h|--help)
         showHelp
@@ -674,7 +702,7 @@ then
   execClass="${overrideMain:-${mainClass[$target]}}"
   if [ "$execClass" = "" ]
   then fail "$project" "$module" "Main class has not been specified."
-  else "$scala" -classpath "${classpath}"dist/"$project"-"$module".jar "$execClass"
+  else "$scala" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
   fi
 fi
 
@@ -682,5 +710,5 @@ if [ "$repl" = "1" ]
 then
   classpath "$target"
   classpath="${lib[$target]// /:}"
-  "$scala" -classpath "${classpath}"dist/"$project"-"$module".jar
+  "$scala" -classpath "${classpath}${distDir}"/"$project"-"$module".jar
 fi
