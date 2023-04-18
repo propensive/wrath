@@ -702,7 +702,9 @@ then
   execClass="${overrideMain:-${mainClass[$target]}}"
   if [ "$execClass" = "" ]
   then fail "$project" "$module" "Main class has not been specified."
-  else "$scala" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
+  else
+    message "$target" "Starting $execClass"
+    "$scala" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
   fi
 fi
 
