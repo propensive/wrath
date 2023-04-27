@@ -17,7 +17,7 @@
 
 declare -g -A include parsed hashes lib sources mainClass jars plugin repoSeen building download
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
-declare -g project module buildFile cacheDir configFile garbageCollect
+declare -g project module buildFile cacheDir configFile garbageCollect benchmark quiet
 declare -i columns
 
 # start codl.sh
@@ -206,6 +206,7 @@ Options:
   -h, --help               show this help message
   -j, --jdk <path>         use the JDK with home directory at <path>
   -o, --output             specify an output directory
+  -q, --quiet              no output, except from execution
   -r, --repl               start the REPL
   -t, --target <target>    target to compile
   -x, --exec <class>       run the main class <class>
@@ -574,35 +575,47 @@ fail() {
 
 gmessage() {
   local text prefix
-  text="$1"
-  prefix="${esc}[1;32mwrath${esc}[2;37m:${esc}[0m"
-  printf "%48s %s\n" "$prefix" "$text"
+  if [ "$quiet" != "1" ]
+  then
+    text="$1"
+    prefix="${esc}[1;32mwrath${esc}[2;37m:${esc}[0m"
+    printf "%48s %s\n" "$prefix" "$text"
+  fi
 }
 
 message() {
   local id bproject bmodule text prefix
-  id="$1"
-  bproject="${id%%/*}"
-  bmodule="${id##*/}"
-  text="$2"
-  prefix="${esc}[0;36m$bproject${esc}[2;37m/${esc}[1;34m$bmodule${esc}[2;37m:${esc}[0m"
-  printf "%62s %s\n" "$prefix" "$text"
+  if [ "$quiet" != "1" ]
+  then
+    id="$1"
+    bproject="${id%%/*}"
+    bmodule="${id##*/}"
+    text="$2"
+    prefix="${esc}[0;36m$bproject${esc}[2;37m/${esc}[1;34m$bmodule${esc}[2;37m:${esc}[0m"
+    printf "%62s %s\n" "$prefix" "$text"
+  fi
 }
 
 rmessage() {
   local id bgroup brepo text prefix
-  id="$1"
-  bgroup="${id%%/*}"
-  brepo="${id##*/}"
-  text="$2"
-  prefix="${esc}[0;31m$bgroup${esc}[2;37m/${esc}[0;35m$brepo${esc}[2;37m:${esc}[0m"
-  printf "%62s %s\n" "$prefix" "$text"
+  if [ "$quiet" != "1" ]
+  then
+    id="$1"
+    bgroup="${id%%/*}"
+    brepo="${id##*/}"
+    text="$2"
+    prefix="${esc}[0;31m$bgroup${esc}[2;37m/${esc}[0;35m$brepo${esc}[2;37m:${esc}[0m"
+    printf "%62s %s\n" "$prefix" "$text"
+  fi
 }
 
 parseOpts() {
   while [[ $# -gt 0 ]]
   do
     case "$1" in
+      -b|--benchmark)
+        benchmark="1"
+        shift ;;
       -c|--clean)
         clean="1"
         shift 1 ;;
@@ -631,11 +644,14 @@ parseOpts() {
         shift 2 ;;
       -m|--main)
         nonempty "$@"
-	overrideMain="$2"
-	shift 2 ;;
+        overrideMain="$2"
+        shift 2 ;;
+      -q|--quiet)
+        quiet="1"
+        shift ;;
       -r|--repl)
         repl="1"
-	shift ;;
+        shift ;;
       -s|--scala)
         nonempty "$@"
         compiler="$2"
