@@ -17,7 +17,7 @@
 
 declare -g -A include parsed hashes lib sources mainClass jars plugin repoSeen building download
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
-declare -g project module buildFile cacheDir configFile garbageCollect benchmark quiet
+declare -g project module buildFile cacheDir configFile garbageCollect benchmark quiet oldGovernor
 declare -i columns
 
 # start codl.sh
@@ -257,7 +257,6 @@ fetchRepo() {
 
 clean() {
   local file
-  local -i count
   
   if [ "$garbageCollect" = "1" ]
   then
@@ -680,6 +679,61 @@ checkTarget() {
   fi
 }
 
+setBench() {
+  local intelNoTurbo amdTurbo cpus status invStatus
+  status="$1"
+  
+  if [ "$status" = "1" ]
+  then invStatus="0"
+  else invStatus="1"
+  fi
+
+  intelNoTurbo="/sys/devices/system/cpu/intel_pstate/no_turbo"
+  amdTurbo="/sys/devices/system/cpu/cpufreq/boost"
+  cpus="/sys/devices/system/cpu"
+  dropCaches="/proc/sys/vm/drop_caches"
+  
+  if [ "$status" = "1" ]
+  then gmessage "Setting benchmarking options; please enter your sudo password if prompted."
+  fi
+  
+  if [ -f "$intelNoTurbo" ]
+  then
+    gmessage "Setting Intel CPU turboboost"
+    sudo sh -c "echo $status > $intelNoTurbo"
+  fi
+
+  if [ -f "$amdTurbo" ]
+  then
+    gmessage "Setting AMD CPU turboboost"
+    sudo sh -c "echo $invStatus > $amdTurbo"
+  fi
+
+  if [ -f "$cpus/cpu0/cpufreq/scaling_governor" ] && \
+      [ "$(cat "$cpus/cpu0/cpufreq/scaling_governor")" != "performance" ]
+  then
+    if [ "$status" = "1" ]
+    then
+      gmessage "Seting CPU scaling governor to 'performance'"
+      oldGovernor="$(cat "$cpus/cpu0/cpufreq/scaling_governor")"
+      for cpu in "$cpus"/*
+      do sudo sh -c "echo performance > $cpu/cpufreq/scaling_governor"
+      done
+    else
+      gmessage "Restoring CPU scaling governor"
+      for cpu in "$cpus"/*
+      do sudo sh -c "echo $oldGovernor > $cpu/cpufreq/scaling_governor"
+      done
+    fi
+  fi
+
+  if [ "$status" = "1" ] && [ -f "$dropCaches" ]
+  then
+    gmessage "Dropping filesystem caches"
+    sudo sh -c "echo 3 > $dropCaches && sync"
+  fi
+}
+
 identifier[project]=1
 identifier[repo]=1
 identifier[module]=1
@@ -720,7 +774,13 @@ then
   then fail "$project" "$module" "Main class has not been specified."
   else
     message "$target" "Starting $execClass"
-    "$scala" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
+    if [ "$benchmark" = "1" ]
+    then
+      setBench 1
+      sudo nice -n -5 taskset -c 1 "$scala" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
+      setBench 0
+    else "$scala" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
+    fi
   fi
 fi
 
