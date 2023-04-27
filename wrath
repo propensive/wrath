@@ -777,7 +777,7 @@ then
     if [ "$benchmark" = "1" ]
     then
       setBench 1
-      sudo nice -n -5 taskset -c 1 "$scala" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
+      sudo -E nice -n -5 taskset -c 1 "$scala" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
       setBench 0
     else "$scala" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
     fi
