@@ -15,10 +15,11 @@
 #   and limitations under the License.
 #
 
-declare -g -A include parsed hashes lib sources mainClass jars plugin repoSeen building download
+declare -g -A include parsed hashes lib sources mainClass jars plugin repoSeen building download coverage
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
 declare -g project module buildFile cacheDir configFile garbageCollect benchmark quiet oldGovernor
 declare -i columns
+declare -a execOpts
 
 # start codl.sh
 declare -A nodes childNodes nodeTypes identifier values
@@ -307,9 +308,14 @@ mkdirs() {
 }
 
 setChecksum() {
-  local id srcDir inputs inputHashes
+  local id srcDir inputs inputHashes cov
   id="$1"
   srcDir="$root/${sources[$id]}"
+
+  if [[ "${coverage[$target]}" = "${id}" ]]
+  then cov="1"
+  else cov="0"
+  fi
   
   if [ "${hashes[$id]}" = "" ]
   then
@@ -321,7 +327,7 @@ setChecksum() {
     done
 
     if compgen -G "$srcDir"/*.scala > /dev/null
-    then hashes[$id]="$( (echo "$inputHashes" && cat "$srcDir"/*.scala) | md5sum | cut -d' ' -f1)"
+    then hashes[$id]="$( (echo "$cov" && echo "$inputHashes" && cat "$srcDir"/*.scala) | md5sum | cut -d' ' -f1)"
     else hashes[$id]="0"
     fi
   fi
@@ -412,6 +418,7 @@ readCodl() {
         mainClass["$project/$module"]="$(values "$file:$project.$module.main")"
         sources["$project/$module"]="$(values "$file:$project.$module.sources")"
         include["$project/$module"]="$(values "$file:$project.$module.include")"
+        coverage["$project/$module"]="$(values "$file:$project.$module.coverage")"
         
         if [ "$(values "$file:$project.$module.plugin")" = "yes" ]
         then plugin["$project/$module"]="1"
@@ -543,7 +550,15 @@ compile() {
   touch .wrath/log/"$bproject"-"$bmodule".log
   if compgen -G "$root"/"$srcDir"/*.scala > /dev/null
   then
-    message "$bproject"/"$bmodule" "Compiling..."
+    if [[ "${coverage[$target]}" = "${bproject}/${bmodule}" ]]
+    then
+      mkdir -p .wrath/coverage/"$bproject"/"$bmodule"
+      opts+=( -coverage-out .wrath/coverage/"$bproject"/"$bmodule" )
+      message "$bproject"/"$bmodule" "Compiling with test coverage..."
+    else
+      message "$bproject"/"$bmodule" "Compiling..."
+    fi
+
     if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala > .wrath/log/"$bproject"-"$bmodule".log 2>&1
     then
       mkdir -p .wrath/cache/"$bproject"
@@ -740,6 +755,7 @@ identifier[module]=1
 identifier[include]=0
 identifier[opt]=0
 identifier[sources]=0
+identifier[coverage]=0
 identifier[compiler]=0
 identifier[plugin]=0
 identifier[lib]=1
@@ -765,6 +781,11 @@ build "$target"
 
 wait
 
+if [[ "${coverage[$target]}" != "" ]]
+then execOpts=(-Dscalac.coverage=.wrath/coverage/"${coverage[$target]}")
+else execOpts=()
+fi
+
 if [ "$run" = "1" ]
 then
   classpath "$target"
@@ -777,9 +798,9 @@ then
     if [ "$benchmark" = "1" ]
     then
       setBench 1
-      sudo -E nice -n -5 taskset -c 1 "$scala" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
+      sudo -E nice -n -5 taskset -c 1 "$scala" "${execOpts[@]}" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
       setBench 0
-    else "$scala" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
+    else "$scala" "${execOpts[@]}" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
     fi
   fi
 fi
@@ -788,5 +809,5 @@ if [ "$repl" = "1" ]
 then
   classpath "$target"
   classpath="${lib[$target]// /:}"
-  "$scala" -classpath "${classpath}${distDir}"/"$project"-"$module".jar
+  "$scala" "${execOpts[@]}" -classpath "${classpath}${distDir}"/"$project"-"$module".jar
 fi
