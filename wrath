@@ -560,7 +560,8 @@ compile() {
     else
       message "$bproject"/"$bmodule" "Compiling..."
     fi
-
+    rm -rf .wrath/bin/"$bproject"/"$bmodule"
+    mkdir -p .wrath/bin/"$bproject"/"$bmodule"
     if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala > .wrath/log/"$bproject"-"$bmodule".log 2>&1
     then
       mkdir -p .wrath/cache/"$bproject"
