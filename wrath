@@ -528,15 +528,16 @@ compile() {
     -d .wrath/bin/"$bproject"/"$bmodule"
     -Xmax-inlines 64
     -Xpluginsdir .wrath/plugin
-    -feature
     -pagewidth "$pageWidth"
     -J-Xss1536K
     -J--enable-preview
     -new-syntax
+    -feature
     -source future
     -Wunused:imports
     -Yrequire-targetName
     -Ysafe-init
+    -deprecation
     -Yexplicit-nulls
     -Ycheck-all-patmat
     -language:experimental.clauseInterleaving
@@ -784,7 +785,7 @@ wait
 
 if [[ "${coverage[$target]}" != "" ]]
 then execOpts=(-Dscalac.coverage=.wrath/coverage/"${coverage[$target]}")
-else execOpts=()
+else execOpts=(-feature)
 fi
 
 if [ "$run" = "1" ]
