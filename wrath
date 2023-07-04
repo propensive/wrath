@@ -482,24 +482,25 @@ build() {
     do build "$ref"
     done
     
-    
     chksum="$(cat .wrath/cache/"$id" 2>/dev/null)"
     setChecksum "$id"
     if [ ! "$chksum" = "${hashes[$id]}" ]
     then
-      mkdir -p .wrath/bin/"$bproject"/"$bmodule"
-      if [ -d "$root/res" ]
-      then
-        for res in "$root"/res/*
-        do cp -r "$res" .wrath/bin/"$bproject"/"$bmodule"/
-        done
-      fi
       classpath "$id"
       classpath="${lib[$id]// /:}"
       rm -f .wrath/log/"$bproject"/"$bmodule".log
+      
       if [ -f "$cacheDir/${hashes[$id]}.jar" ]
       then ln -f "$cacheDir"/"${hashes[$id]}.jar" "$distDir"/"${bproject}"-"${bmodule}".jar
-      else compile "$bproject" "$bmodule" "$classpath" "$root"
+      else
+        mkdir -p .wrath/bin/"$bproject"/"$bmodule"
+        if [ -d "$root/res" ]
+        then
+          for res in "$root"/res/*
+          do cp -r "$res" .wrath/bin/"$bproject"/"$bmodule"/
+          done
+        fi
+        compile "$bproject" "$bmodule" "$classpath" "$root"
       fi
   
       if [ "${plugin[$bproject/$bmodule]}" = "1" ]
@@ -560,8 +561,6 @@ compile() {
     else
       message "$bproject"/"$bmodule" "Compiling..."
     fi
-    rm -rf .wrath/bin/"$bproject"/"$bmodule"
-    mkdir -p .wrath/bin/"$bproject"/"$bmodule"
     if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala > .wrath/log/"$bproject"-"$bmodule".log 2>&1
     then
       mkdir -p .wrath/cache/"$bproject"
