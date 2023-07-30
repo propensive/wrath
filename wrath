@@ -17,7 +17,7 @@
 
 declare -g -A include parsed hashes lib sources mainClass jars plugin repoSeen building download coverage
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
-declare -g project module buildFile cacheDir configFile garbageCollect benchmark quiet oldGovernor
+declare -g project module buildFile cacheDir configFile garbageCollect benchmark quiet profile oldGovernor
 declare -i columns
 declare -a execOpts
 
@@ -207,6 +207,7 @@ Options:
   -h, --help               show this help message
   -j, --jdk <path>         use the JDK with home directory at <path>
   -o, --output             specify an output directory
+  -p, --profile            profile the JVM
   -q, --quiet              no output, except from execution
   -r, --repl               start the REPL
   -t, --target <target>    target to compile
@@ -536,6 +537,7 @@ compile() {
     -feature
     -source future
     -Wunused:imports
+    -Wimplausible-patterns
     -Yrequire-targetName
     -Ysafe-init
     -deprecation
@@ -662,6 +664,9 @@ parseOpts() {
         nonempty "$@"
         overrideMain="$2"
         shift 2 ;;
+      -p|--profile)
+        profile="1"
+        shift ;;
       -q|--quiet)
         quiet="1"
         shift ;;
@@ -793,6 +798,13 @@ then
   classpath "$target"
   classpath="${lib[$target]// /:}"
   execClass="${overrideMain:-${mainClass[$target]}}"
+
+  if [ "$profile" = "1" ]
+  then
+    mkdir -p ".wrath/profile"
+    execOpts+=(-J-XX:+UnlockCommercialFeatures -J-XX:+FlightRecorder -J-XX:StartFlightRecording=duration=10s,filename=.wrath/profile/flight.jfr)
+  fi
+
   if [ "$execClass" = "" ]
   then fail "$project" "$module" "Main class has not been specified."
   else
