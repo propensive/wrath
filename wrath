@@ -362,7 +362,7 @@ readConfig() {
 }
 
 readCodl() {
-  local brepo file ref IFS project module repoDir lib
+  local brepo file ref IFS project module repoDir lib repoUrl
   local -i isMain
   local -a libDetails
   IFS=$'\n'
@@ -381,12 +381,20 @@ readCodl() {
     then target="$(values "$file:target")"
     fi
 
-    for repo in $(children "$file:" repo)
+    for repoUrl in $(children "$file:" repo)
     do
+      case "$repoUrl" in
+        https*)
+	  repo="${repoUrl:19}" ;;
+        *)
+	  repo="$repoUrl" ;;
+      esac
+
+
       if [ ! "${repoSeen[$repo]}" = "1" ]
       then
         repoDir="$defaultDir/${repo#*/}"
-	if [ ! -d "$repoDir" ]
+        if [ ! -d "$repoDir" ]
 	then 
           if [ "$fetch" -ge "1" ]
           then
@@ -533,6 +541,7 @@ compile() {
     -pagewidth "$pageWidth"
     -J-Xss1536K
     -J--enable-preview
+    -J-Xss2m
     -new-syntax
     -feature
     -source future
