@@ -19,7 +19,7 @@ declare -g -A include parsed hashes lib sources mainClass jars plugin repoSeen b
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
 declare -g project module buildFile cacheDir configFile garbageCollect benchmark quiet profile oldGovernor
 declare -i columns
-declare -a execOpts
+declare -a execOpts arguments
 
 # start codl.sh
 declare -A nodes childNodes nodeTypes identifier values
@@ -572,7 +572,7 @@ compile() {
     else
       message "$bproject"/"$bmodule" "Compiling..."
     fi
-    if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala > .wrath/log/"$bproject"-"$bmodule".log 2>&1
+    if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala "${arguments[@]}" > .wrath/log/"$bproject"-"$bmodule".log 2>&1
     then
       mkdir -p .wrath/cache/"$bproject"
       message "$bproject"/"$bmodule" "Finished compiling"
@@ -640,6 +640,11 @@ parseOpts() {
   while [[ $# -gt 0 ]]
   do
     case "$1" in
+      --)
+        shift 1
+	arguments=("$@")
+	break
+	;;
       -b|--benchmark)
         benchmark="1"
         shift ;;
@@ -799,7 +804,7 @@ wait
 
 if [[ "${coverage[$target]}" != "" ]]
 then execOpts=(-Dscalac.coverage=.wrath/coverage/"${coverage[$target]}")
-else execOpts=(-feature)
+else execOpts=()
 fi
 
 if [ "$run" = "1" ]
@@ -811,7 +816,7 @@ then
   if [ "$profile" = "1" ]
   then
     mkdir -p ".wrath/profile"
-    execOpts+=(-J-XX:+UnlockCommercialFeatures -J-XX:+FlightRecorder -J-XX:StartFlightRecording=duration=10s,filename=.wrath/profile/flight.jfr)
+    execOpts+=(-J-XX:+UnlockCommercialFeatures -J-XX:+FlightRecorder "-J-XX:StartFlightRecording=duration=10s,filename=.wrath/profile/flight.jfr")
   fi
 
   if [ "$execClass" = "" ]
@@ -821,9 +826,9 @@ then
     if [ "$benchmark" = "1" ]
     then
       setBench 1
-      sudo -E nice -n -5 taskset -c 1 "$scala" "${execOpts[@]}" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
+      sudo -E nice -n -5 taskset -c 1 "$scala" "${execOpts[@]}" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass" "${arguments[@]}" 
       setBench 0
-    else "$scala" "${execOpts[@]}" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass"
+    else "$scala" "${execOpts[@]}" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "$execClass" "${arguments[@]}" 
     fi
   fi
 fi
@@ -832,5 +837,5 @@ if [ "$repl" = "1" ]
 then
   classpath "$target"
   classpath="${lib[$target]// /:}"
-  "$scala" "${execOpts[@]}" -classpath "${classpath}${distDir}"/"$project"-"$module".jar
+  "$scala" "${execOpts[@]}" -classpath "${classpath}${distDir}"/"$project"-"$module".jar "${arguments[@]}" 
 fi
