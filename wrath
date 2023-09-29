@@ -538,6 +538,8 @@ compile() {
     -d .wrath/bin/"$bproject"/"$bmodule"
     -Xmax-inlines 64
     -Xpluginsdir .wrath/plugin
+    -Xlint:private-shadow
+    -Xlint:type-parameter-shadow
     -pagewidth "$pageWidth"
     -J-Xss1536K
     -J--enable-preview
@@ -572,7 +574,7 @@ compile() {
     else
       message "$bproject"/"$bmodule" "Compiling..."
     fi
-    if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala "${arguments[@]}" > .wrath/log/"$bproject"-"$bmodule".log 2>&1
+    if $scalac "${opts[@]}" "$root"/"$srcDir"/*.scala > .wrath/log/"$bproject"-"$bmodule".log 2>&1
     then
       mkdir -p .wrath/cache/"$bproject"
       message "$bproject"/"$bmodule" "Finished compiling"
