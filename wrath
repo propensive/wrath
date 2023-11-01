@@ -17,7 +17,7 @@
 
 declare -g -A include parsed hashes lib sources mainClass jars plugin repoSeen building download coverage
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
-declare -g project module buildFile cacheDir configFile garbageCollect benchmark quiet profile oldGovernor
+declare -g project module buildFile cacheDir configFile garbageCollect benchmark quiet profile oldGovernor artifact
 declare -i columns
 declare -a execOpts arguments
 
@@ -198,6 +198,7 @@ Usage: wrath [options]
 Builds a project with Wrath.
 
 Options:
+  -a, --artifact           build a artifact
   -c, --clean              clean the target project
   -C, --deep-clean         clean all targets
   -d, --default <dir>      look inside directory <dir> for dependencies
@@ -585,6 +586,17 @@ compile() {
 
       package "$cacheDir"/"${hashes["$id"]}".jar .wrath/bin/"$bproject"/"$bmodule"
       ln -f "$cacheDir"/"${hashes["$id"]}".jar "${distDir}"/"$bproject"-"$bmodule".jar
+
+      if [ "$artifact" = "1" ] && [ "$target" = "$bproject/$bmodule" ]
+      then
+	zipmerge "$bproject-$bmodule.jar" \
+	    $( (compgen -G "$compiler/dist/target/pack/lib/*.jar" && echo "${lib[$target]}" | tr ' ' '\n' | grep -v '^$') | tr '\n' ' ') \
+	    "${distDir}/$bproject-$bmodule.jar"
+	jar ufe "$bproject-$bmodule.jar" "${mainClass["$bproject/$bmodule"]}"
+	(unzip -p "$bproject-$bmodule.jar" exoskeleton/launcher ; cat "$bproject-$bmodule.jar") >> "$bproject-$bmodule"
+	chmod +x "$bproject-$bmodule"
+      fi
+
     else
       message "$id" "Compilation failed"
     
@@ -647,6 +659,9 @@ parseOpts() {
 	arguments=("$@")
 	break
 	;;
+      -a|--artifact)
+        artifact="1"
+	shift ;;
       -b|--benchmark)
         benchmark="1"
         shift ;;
