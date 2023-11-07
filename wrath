@@ -595,7 +595,7 @@ compile() {
 	    $( (compgen -G "$compiler/dist/target/pack/lib/*.jar" && echo "${lib[$target]}" | tr ' ' '\n' | grep -v '^$') | tr '\n' ' ') \
 	    "${distDir}/$bproject-$bmodule.jar"
 	jar ufe "$tmpJar" "${mainClass["$target"]}"
-	(unzip -p "$tmpJar" exoskeleton/launcher ; cat "$tmpJar") >> "${artifactFile["$target"]}"
+	(unzip -p "$tmpJar" exoskeleton/launcher ; cat "$tmpJar") > "${artifactFile["$target"]}"
 	chmod +x "${artifactFile["$target"]}"
 	rm "$tmpJar"
       fi
