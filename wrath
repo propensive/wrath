@@ -15,7 +15,7 @@
 #   and limitations under the License.
 #
 
-declare -g -A include parsed hashes lib sources mainClass artifactFile jars plugin repoSeen building download coverage
+declare -g -A include parsed hashes lib sources mainClass artifactFile jars plugin repoSeen building download coverage buildIdFile
 declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
 declare -g project module buildFile cacheDir configFile garbageCollect benchmark quiet profile oldGovernor artifact
 declare -i columns
@@ -427,6 +427,7 @@ readCodl() {
 	done
         mainClass["$project/$module"]="$(values "$file:$project.$module.main")"
         artifactFile["$project/$module"]="$(values "$file:$project.$module.artifact")"
+        buildIdFile["$project/$module"]="$(values "$file:$project.$module.counter")"
         sources["$project/$module"]="$(values "$file:$project.$module.sources")"
         include["$project/$module"]="$(values "$file:$project.$module.include")"
         coverage["$project/$module"]="$(values "$file:$project.$module.coverage")"
@@ -594,8 +595,11 @@ compile() {
 	zipmerge "$tmpJar" \
 	    $( (compgen -G "$compiler/dist/target/pack/lib/*.jar" && echo "${lib[$target]}" | tr ' ' '\n' | grep -v '^$') | tr '\n' ' ') \
 	    "${distDir}/$bproject-$bmodule.jar"
+	buildId=$(cat "${buildIdFile["$target"]}")
+	newBuildId=$((buildId+1))
+	echo "$newBuildId" > "${buildIdFile["$target"]}"
 	jar ufe "$tmpJar" "${mainClass["$target"]}"
-	(unzip -p "$tmpJar" exoskeleton/launcher ; cat "$tmpJar") > "${artifactFile["$target"]}"
+	(unzip -p "$tmpJar" exoskeleton/launcher | sed "s/%%BUILDID%%/$buildId/" ; cat "$tmpJar") > "${artifactFile["$target"]}"
 	chmod +x "${artifactFile["$target"]}"
 	rm "$tmpJar"
       fi
@@ -805,6 +809,7 @@ identifier[description]=0
 identifier[target]=0
 identifier[main]=0
 identifier[artifact]=0
+identifier[counter]=0
 
 parseOpts "$@"
 gmessage "Reading global config"
