@@ -599,7 +599,7 @@ compile() {
 	newBuildId=$((buildId+1))
 	echo "$newBuildId" > "${buildIdFile["$target"]}"
 	jar ufe "$tmpJar" "${mainClass["$target"]}"
-	(unzip -p "$tmpJar" exoskeleton/launcher | sed "s/%%BUILDID%%/$buildId/" ; cat "$tmpJar") > "${artifactFile["$target"]}"
+	(unzip -p "$tmpJar" spectral/launcher | sed "s/%%BUILDID%%/$buildId/" ; cat "$tmpJar") > "${artifactFile["$target"]}"
 	chmod +x "${artifactFile["$target"]}"
 	rm "$tmpJar"
       fi
