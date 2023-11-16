@@ -16,7 +16,7 @@
 #
 
 declare -g -A include parsed hashes lib sources mainClass artifactFile jars plugin repoSeen building download coverage buildIdFile
-declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir
+declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir installTarget
 declare -g project module buildFile cacheDir configFile garbageCollect benchmark quiet profile oldGovernor artifact
 declare -i columns
 declare -a execOpts arguments
@@ -38,14 +38,14 @@ refocus() {
   nodeArgs=("${@:4}")
   depth=${#focus[@]}
   difference=$((depth-level))
-  
+
   while [ $difference -gt 2 ]
   do
     unset 'focus[-1]'
     depth=${#focus[@]}
     difference=$((depth-level))
   done
-  
+
   if [ $difference = 2 ]
   then
     unset 'focus[-1]'
@@ -54,13 +54,13 @@ refocus() {
   if [ $difference = 1 ]
   then focus+=("$nodeId")
   fi
-  
+
   printf -v address ".%s" "${focus[@]}"
   parent="${address%.*}"
   address="${address:2}"
   parent="${parent:2}"
   nodeTypes["$file:$address"]="${nodeType}"
-  
+
   if [ "${values["$file:$address"]}" = "" ]
   then values["$file:$address"]="${nodeArgs[*]:1}"
   else values["$file:$address"]+=" ${nodeArgs[*]:1}"
@@ -140,11 +140,11 @@ children() {
   node="$1"
   prefix="${#node}"
   filter="$2"
-  
+
   if [ "${node:0-1}" != ":" ]
   then prefix=$((prefix+1))
   fi
-  
+
   read -ra nodes <<< "${childNodes[$node]}"
   for node in "${nodes[@]}"
   do
@@ -206,6 +206,7 @@ Options:
   -F, --fetch-all          automatically fetch missing dependencies and compiler
   -g, --garbage-collect    remove orphaned cache files
   -h, --help               show this help message
+  -i, --install <path>     install the artifact to <path>
   -j, --jdk <path>         use the JDK with home directory at <path>
   -o, --output             specify an output directory
   -p, --profile            profile the JVM
@@ -260,7 +261,7 @@ fetchRepo() {
 
 clean() {
   local file
-  
+
   if [ "$garbageCollect" = "1" ]
   then
     gmessage "Garbage collecting orphan files"
@@ -318,7 +319,7 @@ setChecksum() {
   then cov="1"
   else cov="0"
   fi
-  
+
   if [ "${hashes[$id]}" = "" ]
   then
     read -ra inputs <<< "${include[$id]}"
@@ -338,7 +339,7 @@ setChecksum() {
 package() {
   local dir jarFile
   local -a args
-  
+
   jarFile="$1"
   dir="$2"
 
@@ -386,9 +387,9 @@ readCodl() {
     do
       case "$repoUrl" in
         https*)
-	  repo="${repoUrl:19}" ;;
+          repo="${repoUrl:19}" ;;
         *)
-	  repo="$repoUrl" ;;
+          repo="$repoUrl" ;;
       esac
 
 
@@ -396,21 +397,21 @@ readCodl() {
       then
         repoDir="$defaultDir/${repo#*/}"
         if [ ! -d "$repoDir" ]
-	then 
+        then 
           if [ "$fetch" -ge "1" ]
           then
-	    fetchRepo "$repo" "$repoDir"
+            fetchRepo "$repo" "$repoDir"
             repoSeen["$repo"]="1"
             readCodl "$repo" "$repoDir"/"$buildFile"
-	  else
-	    rmessage "$repo" "Repository not found"
-	    rmessage "$repo" "Run wrath with -f to fetch missing repositories, or create a symlink to $repo in the current directory"
-	    exit 1
+          else
+            rmessage "$repo" "Repository not found"
+            rmessage "$repo" "Run wrath with -f to fetch missing repositories, or create a symlink to $repo in the current directory"
+            exit 1
           fi
-	else
+        else
           repoSeen["$repo"]="1"
           readCodl "$repo" "$repoDir"/"$buildFile"
-	fi
+        fi
       fi
     done
 
@@ -419,19 +420,19 @@ readCodl() {
       for module in $(children "$file:$project" module)
       do
         for lib in $(children "$file:$project.$module" lib)
-	do
+        do
           IFS=$' '
-	  libDetails=( ${values["$file:$project.$module.$lib"]} )
-	  download["${libDetails[0]}"]="${libDetails[1]}"
-	  jars["$project/$module"]+="${libDetails[0]} "
-	done
+          libDetails=( ${values["$file:$project.$module.$lib"]} )
+          download["${libDetails[0]}"]="${libDetails[1]}"
+          jars["$project/$module"]+="${libDetails[0]} "
+        done
         mainClass["$project/$module"]="$(values "$file:$project.$module.main")"
         artifactFile["$project/$module"]="$(values "$file:$project.$module.artifact")"
         buildIdFile["$project/$module"]="$(values "$file:$project.$module.counter")"
         sources["$project/$module"]="$(values "$file:$project.$module.sources")"
         include["$project/$module"]="$(values "$file:$project.$module.include")"
         coverage["$project/$module"]="$(values "$file:$project.$module.coverage")"
-        
+
         if [ "$(values "$file:$project.$module.plugin")" = "yes" ]
         then plugin["$project/$module"]="1"
         fi
@@ -446,19 +447,19 @@ classpath() {
   local -a acc dependencies dedup
   id="$1"
   IFS=" "
-  
+
   if [ "${lib[$id]}" = "" ]
   then
     read -ra libs <<< "${jars[$id]}"
     for jar in "${libs[@]}"
     do acc+=(.wrath/lib/"${jar##*/}.jar")
     done
-    
+
     read -ra dependencies <<< "${include[$id]}"
     for ref in "${dependencies[@]}"
     do classpath "$ref"
     done
-    
+
     for ref in "${dependencies[@]}"
     do
       acc+=("$distDir"/"${ref//\//-}".jar)
@@ -472,11 +473,11 @@ classpath() {
 
 build() {
   local IFS id bproject bmodule root srcDir chksum
-  
+
   id="$1"
   bproject="${id%%/*}"
   bmodule="${id##*/}"
-  
+
   if [ "$bproject" = "$project" ]
   then root="$(realpath .)"
   else root="$(realpath "$defaultDir/$bproject")"
@@ -493,7 +494,7 @@ build() {
     for ref in "${dependencies[@]}"
     do build "$ref"
     done
-    
+
     chksum="$(cat .wrath/cache/"$id" 2>/dev/null)"
     setChecksum "$id"
     if [ ! "$chksum" = "${hashes[$id]}" ]
@@ -501,7 +502,7 @@ build() {
       classpath "$id"
       classpath="${lib[$id]// /:}"
       rm -f .wrath/log/"$bproject"/"$bmodule".log
-      
+
       if [ -f "$cacheDir/${hashes[$id]}.jar" ]
       then ln -f "$cacheDir"/"${hashes[$id]}.jar" "$distDir"/"${bproject}"-"${bmodule}".jar
       else
@@ -514,7 +515,7 @@ build() {
         fi
         compile "$bproject" "$bmodule" "$classpath" "$root"
       fi
-  
+
       if [ "${plugin[$bproject/$bmodule]}" = "1" ]
       then
         message "$bproject"/"$bmodule" "Installing plugin"
@@ -581,7 +582,7 @@ compile() {
     then
       mkdir -p .wrath/cache/"$bproject"
       message "$bproject"/"$bmodule" "Finished compiling"
-    
+
       while read -r line
       do message "$bproject"/"$bmodule" "$line"
       done < .wrath/log/"$bproject"-"$bmodule".log
@@ -592,25 +593,30 @@ compile() {
       if [ "$artifact" = "1" ] && [ "$target" = "$bproject/$bmodule" ]
       then
         tmpJar="$(mktemp -u --suffix=".jar")"
-	zipmerge "$tmpJar" \
-	    $( (compgen -G "$compiler/dist/target/pack/lib/*.jar" && echo "${lib[$target]}" | tr ' ' '\n' | grep -v '^$') | tr '\n' ' ') \
-	    "${distDir}/$bproject-$bmodule.jar"
-	buildId=$(cat "${buildIdFile["$target"]}")
-	newBuildId=$((buildId+1))
-	echo "$newBuildId" > "${buildIdFile["$target"]}"
-	jar ufe "$tmpJar" "${mainClass["$target"]}"
-	(unzip -p "$tmpJar" spectral/launcher | sed "s/%%BUILDID%%/$buildId/" ; cat "$tmpJar") > "${artifactFile["$target"]}"
-	chmod +x "${artifactFile["$target"]}"
-	rm "$tmpJar"
+        zipmerge "$tmpJar" \
+            $( (compgen -G "$compiler/dist/target/pack/lib/*.jar" && echo "${lib[$target]}" | tr ' ' '\n' | grep -v '^$') | tr '\n' ' ') \
+            "${distDir}/$bproject-$bmodule.jar"
+        buildId=$(cat "${buildIdFile["$target"]}")
+        newBuildId=$((buildId+1))
+        echo "$newBuildId" > "${buildIdFile["$target"]}"
+        jar ufe "$tmpJar" "${mainClass["$target"]}"
+        (unzip -p "$tmpJar" spectral/launcher | sed "s/%%BUILDID%%/$buildId/" ; cat "$tmpJar") > "${artifactFile["$target"]}"
+        chmod +x "${artifactFile["$target"]}"
+
+        if [ "$installTarget" != "" ]
+        then cp "${artifactFile["$target"]}" "$installTarget"
+        fi
+
+        rm "$tmpJar"
       fi
 
     else
       message "$id" "Compilation failed"
-    
+
       while read -r line
       do message "$bproject"/"$bmodule" "$line"
       done < .wrath/log/"$bproject"-"$bmodule".log
-    
+
       exit 1
     fi
   fi
@@ -663,12 +669,12 @@ parseOpts() {
     case "$1" in
       --)
         shift 1
-	arguments=("$@")
-	break
-	;;
+        arguments=("$@")
+        break
+        ;;
       -a|--artifact)
         artifact="1"
-	shift ;;
+        shift ;;
       -b|--benchmark)
         benchmark="1"
         shift ;;
@@ -694,6 +700,10 @@ parseOpts() {
       -h|--help)
         showHelp
         ;;
+      -i|--install)
+        nonempty "$@"
+        installTarget="$2"
+        shift 2 ;;
       -j|--jdk)
         nonempty "$@"
         export JAVA_HOME="$2"
@@ -742,7 +752,7 @@ checkTarget() {
 setBench() {
   local intelNoTurbo amdTurbo cpus status invStatus
   status="$1"
-  
+
   if [ "$status" = "1" ]
   then invStatus="0"
   else invStatus="1"
@@ -752,11 +762,11 @@ setBench() {
   amdTurbo="/sys/devices/system/cpu/cpufreq/boost"
   cpus="/sys/devices/system/cpu"
   dropCaches="/proc/sys/vm/drop_caches"
-  
+
   if [ "$status" = "1" ]
   then gmessage "Setting benchmarking options; please enter your sudo password if prompted."
   fi
-  
+
   if [ -f "$intelNoTurbo" ]
   then
     gmessage "Setting Intel CPU turboboost"
