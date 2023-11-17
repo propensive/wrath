@@ -600,7 +600,7 @@ compile() {
         newBuildId=$((buildId+1))
         echo "$newBuildId" > "${buildIdFile["$target"]}"
         jar ufe "$tmpJar" "${mainClass["$target"]}"
-        (unzip -p "$tmpJar" spectral/launcher | sed "s/%%BUILDID%%/$buildId/" ; cat "$tmpJar") > "${artifactFile["$target"]}"
+        (unzip -p "$tmpJar" spectral/prefix | sed "s/%%BUILDID%%/$buildId/" ; cat "jre/jre-21-linux-x64.tar.gz"; cat "$tmpJar") > "${artifactFile["$target"]}"
         chmod +x "${artifactFile["$target"]}"
 
         if [ "$installTarget" != "" ]
