@@ -446,7 +446,7 @@ classpath() {
   local IFS id
   local -a acc dependencies dedup
   id="$1"
-  IFS=" "
+  IFS=$' '
 
   if [ "${lib[$id]}" = "" ]
   then
@@ -485,13 +485,13 @@ build() {
   else root="$(realpath "$defaultDir/$bproject")"
   fi
 
-  IFS=' '
+  IFS=$' '
 
   fetchLibs "$id"
 
   if [ ! "${building[$id]}" = "1" ]
   then
-    read -ra dependencies <<< "${include[$id]}"
+    read -ra dependencies <<< "$(echo "${include[$id]}" | tr '\n' ' ')"
     building[$id]="1"
     for ref in "${dependencies[@]}"
     do build "$ref"
