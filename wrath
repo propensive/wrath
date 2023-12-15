@@ -455,7 +455,8 @@ classpath() {
     do acc+=(.wrath/lib/"${jar##*/}.jar")
     done
 
-    read -ra dependencies <<< "${include[$id]}"
+    read -ra dependencies <<< "$(echo "${include[$id]}" | tr '\n' ' ')"
+
     for ref in "${dependencies[@]}"
     do classpath "$ref"
     done
@@ -473,6 +474,7 @@ classpath() {
 
 build() {
   local IFS id bproject bmodule root srcDir chksum
+  local -a dependencies
 
   id="$1"
   bproject="${id%%/*}"
@@ -600,7 +602,9 @@ compile() {
         newBuildId=$((buildId+1))
         echo "$newBuildId" > "${buildIdFile["$target"]}"
         jar ufe "$tmpJar" "${mainClass["$target"]}"
-        (unzip -p "$tmpJar" spectral/prefix | sed "s/%%BUILDID%%/$buildId/" ; cat "jre/jre-21-linux-x64.tar.gz"; cat "$tmpJar") > "${artifactFile["$target"]}"
+	payloadSize=$(wc -c "jre/jre-21-linux-x64.tar.gz" | cut -d' ' -f1)
+	jarSize=$(wc -c "$tmpJar" | cut -d' ' -f1)
+        (unzip -p "$tmpJar" spectral/prefix | sed "s/%%PAYLOADSIZE%%/$payloadSize/" | sed "s/%%JARSIZE%%/$jarSize/" | sed "s/%%BUILDID%%/$buildId/" ; cat "jre/jre-21-linux-x64.tar.gz"; cat "$tmpJar") > "${artifactFile["$target"]}"
         chmod +x "${artifactFile["$target"]}"
 
         if [ "$installTarget" != "" ]
