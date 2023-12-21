@@ -16,7 +16,7 @@
 #
 
 declare -g -A include parsed hashes lib sources mainClass artifactFile jars plugin repoSeen building download coverage buildIdFile
-declare -g run fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir installTarget
+declare -g run showClasspath fetch scala scalac compiler repl esc overrideMain execClass defaultDir workDir installTarget
 declare -g project module buildFile cacheDir configFile garbageCollect benchmark quiet profile oldGovernor artifact
 declare -i columns
 declare -a execOpts arguments
@@ -212,6 +212,7 @@ Options:
   -p, --profile            profile the JVM
   -q, --quiet              no output, except from execution
   -r, --repl               start the REPL
+  -S, --show-classpath     show the classpath
   -t, --target <target>    target to compile
   -x, --exec <class>       run the main class <class>
 
@@ -638,7 +639,10 @@ gmessage() {
   then
     text="$1"
     prefix="${esc}[1;32mwrath${esc}[2;37m:${esc}[0m"
-    printf "%48s %s\n" "$prefix" "$text"
+    if [ "$showClasspath" != "1" ]
+    then printf "%48s %s\n" "$prefix" "$text"
+    else printf "%48s %s\n" "$prefix" "$text" >&2
+    fi
   fi
 }
 
@@ -651,7 +655,10 @@ message() {
     bmodule="${id##*/}"
     text="$2"
     prefix="${esc}[0;36m$bproject${esc}[2;37m/${esc}[1;34m$bmodule${esc}[2;37m:${esc}[0m"
-    printf "%62s %s\n" "$prefix" "$text"
+    if [ "$showClasspath" != "1" ]
+    then printf "%62s %s\n" "$prefix" "$text"
+    else printf "%62s %s\n" "$prefix" "$text" >&2
+    fi
   fi
 }
 
@@ -664,7 +671,10 @@ rmessage() {
     brepo="${id##*/}"
     text="$2"
     prefix="${esc}[0;31m$bgroup${esc}[2;37m/${esc}[0;35m$brepo${esc}[2;37m:${esc}[0m"
-    printf "%62s %s\n" "$prefix" "$text"
+    if [ "$showClasspath" != "1" ]
+    then printf "%62s %s\n" "$prefix" "$text"
+    else printf "%62s %s\n" "$prefix" "$text" >&2
+    fi
   fi
 }
 
@@ -730,6 +740,9 @@ parseOpts() {
         nonempty "$@"
         compiler="$2"
         shift 2 ;;
+      -S|--show-classpath)
+        showClasspath="1"
+        shift 1 ;;
       -t|--target)
         target="$2"
         shift 2 ;;
@@ -846,6 +859,10 @@ wait
 if [[ "${coverage[$target]}" != "" ]]
 then execOpts=(-Dscalac.coverage=.wrath/coverage/"${coverage[$target]}")
 else execOpts=()
+fi
+
+if [ "$showClasspath" = "1" ]
+then echo "${classpath}${distDir}/$project-$module.jar"
 fi
 
 if [ "$run" = "1" ]
