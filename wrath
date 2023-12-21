@@ -862,7 +862,7 @@ else execOpts=()
 fi
 
 if [ "$showClasspath" = "1" ]
-then echo "${classpath}${distDir}/$project-$module.jar"
+then echo "${classpath}${distDir}/$project-$module.jar" | sed 's/^:*//' | sed 's/:*$//'
 fi
 
 if [ "$run" = "1" ]
