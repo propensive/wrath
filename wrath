@@ -642,7 +642,7 @@ gmessage() {
     prefix="${esc}[1;32mwrath${esc}[2;37m:${esc}[0m"
     if [ "$showClasspath" != "1" ]
     then printf "%48s %s\n" "$prefix" "$text"
-    else printf "%48s %s\n" "$prefix" "$text" >&2
+    #else printf "%48s %s\n" "$prefix" "$text" >&2
     fi
   fi
 }
@@ -658,7 +658,7 @@ message() {
     prefix="${esc}[0;36m$bproject${esc}[2;37m/${esc}[1;34m$bmodule${esc}[2;37m:${esc}[0m"
     if [ "$showClasspath" != "1" ]
     then printf "%62s %s\n" "$prefix" "$text"
-    else printf "%62s %s\n" "$prefix" "$text" >&2
+    #else printf "%62s %s\n" "$prefix" "$text" >&2
     fi
   fi
 }
@@ -674,7 +674,7 @@ rmessage() {
     prefix="${esc}[0;31m$bgroup${esc}[2;37m/${esc}[0;35m$brepo${esc}[2;37m:${esc}[0m"
     if [ "$showClasspath" != "1" ]
     then printf "%62s %s\n" "$prefix" "$text"
-    else printf "%62s %s\n" "$prefix" "$text" >&2
+    #else printf "%62s %s\n" "$prefix" "$text" >&2
     fi
   fi
 }
@@ -863,7 +863,10 @@ else execOpts=()
 fi
 
 if [ "$showClasspath" = "1" ]
-then echo "${classpath}${distDir}/$project-$module.jar" | sed 's/^:*//' | sed 's/:*$//'
+then
+  echo -n "${compiler}"/dist/target/pack/lib/* | tr ' ' ':'
+  echo -n :
+  echo "${classpath}${distDir}/$project-$module.jar" | sed 's/^:*//' | sed 's/:*$//'
 fi
 
 if [ "$run" = "1" ]
