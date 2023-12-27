@@ -605,9 +605,9 @@ compile() {
         newBuildId=$((buildId+1))
         echo "$newBuildId" > "${buildIdFile["$target"]}"
         jar ufe "$tmpJar" "${mainClass["$target"]}"
-	payloadSize=$(wc -c "jre/jre-21-linux-x64.tar.gz" | cut -d' ' -f1)
+	payloadSize=$(wc -c "jre/jre-21-linux-$(uname -m).tar.gz" | cut -d' ' -f1)
 	jarSize=$(wc -c "$tmpJar" | cut -d' ' -f1)
-        (unzip -p "$tmpJar" spectral/prefix | sed "s/%%PAYLOADSIZE%%/$payloadSize/" | sed "s/%%JARSIZE%%/$jarSize/" | sed "s/%%BUILDID%%/$buildId/" ; cat "jre/jre-21-linux-x64.tar.gz"; cat "$tmpJar") > "${artifactFile["$target"]}"
+	(unzip -p "$tmpJar" spectral/prefix | sed "s/%%PAYLOADSIZE%%/$payloadSize/" | sed "s/%%JARSIZE%%/$jarSize/" | sed "s/%%BUILDID%%/$buildId/" ; cat "jre/jre-21-linux-$(uname -m).tar.gz"; cat "$tmpJar") > "${artifactFile["$target"]}"
         chmod +x "${artifactFile["$target"]}"
 
         if [ "$installTarget" != "" ]
@@ -840,6 +840,12 @@ identifier[main]=0
 identifier[artifact]=0
 identifier[counter]=0
 
+if [ "$showClasspath" != "1" ] && [ -f .wrath/classpath.cache ]
+then
+  cat .wrath/classpath.cache
+  exit 0
+fi
+
 parseOpts "$@"
 gmessage "Reading global config"
 workDir="$(realpath "$PWD")"
@@ -864,9 +870,10 @@ fi
 
 if [ "$showClasspath" = "1" ]
 then
-  echo -n "${compiler}"/dist/target/pack/lib/* | tr ' ' ':'
-  echo -n :
-  echo "${classpath}${distDir}/$project-$module.jar" | sed 's/^:*//' | sed 's/:*$//'
+  echo -n "${compiler}"/dist/target/pack/lib/* | tr ' ' ':' > .wrath/classpath.cache
+  echo -n : >> .wrath/classpath.cache
+  echo "${classpath}${distDir}/$project-$module.jar" | sed 's/^:*//' | sed 's/:*$//' >> .wrath/classpath.cache
+  cat .wrath/classpath.cache
 fi
 
 if [ "$run" = "1" ]
