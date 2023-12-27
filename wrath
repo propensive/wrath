@@ -840,7 +840,7 @@ identifier[main]=0
 identifier[artifact]=0
 identifier[counter]=0
 
-if [ "$showClasspath" != "1" ] && [ -f .wrath/classpath.cache ]
+if [ "$showClasspath" == "1" ] && [ -f .wrath/classpath.cache ]
 then
   cat .wrath/classpath.cache
   exit 0
