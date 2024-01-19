@@ -562,6 +562,7 @@ compile() {
     -Yexplicit-nulls
     -Ycheck-all-patmat
     -language:experimental.clauseInterleaving
+    -language:experimental.genericNumberLiterals
     -language:experimental.givenLoopPrevention
     -language:experimental.fewerBraces
     -language:experimental.into
@@ -864,8 +865,8 @@ build "$target"
 wait
 
 if [[ "${coverage[$target]}" != "" ]]
-then execOpts=(-Dscalac.coverage=.wrath/coverage/"${coverage[$target]}")
-else execOpts=()
+then execOpts=(-Dscalac.coverage=.wrath/coverage/"${coverage[$target]}" -J--add-modules=jdk.incubator.vector)
+else execOpts=(-J--add-modules=jdk.incubator.vector)
 fi
 
 if [ "$showClasspath" = "1" ]
