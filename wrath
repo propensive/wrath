@@ -608,7 +608,7 @@ compile() {
         jar ufe "$tmpJar" "${mainClass["$target"]}"
 	payloadSize=$(wc -c "jre/jre-21-linux-$(uname -m).tar.gz" | cut -d' ' -f1)
 	jarSize=$(wc -c "$tmpJar" | cut -d' ' -f1)
-	(unzip -p "$tmpJar" spectral/prefix | sed "s/%%PAYLOADSIZE%%/$payloadSize/" | sed "s/%%JARSIZE%%/$jarSize/" | sed "s/%%BUILDID%%/$buildId/" ; cat "jre/jre-21-linux-$(uname -m).tar.gz"; cat "$tmpJar") > "${artifactFile["$target"]}"
+	(unzip -p "$tmpJar" ethereal/prefix | sed "s/%%PAYLOADSIZE%%/$payloadSize/" | sed "s/%%JARSIZE%%/$jarSize/" | sed "s/%%BUILDID%%/$buildId/" ; cat "jre/jre-21-linux-$(uname -m).tar.gz"; cat "$tmpJar") > "${artifactFile["$target"]}"
         chmod +x "${artifactFile["$target"]}"
 
         if [ "$installTarget" != "" ]
