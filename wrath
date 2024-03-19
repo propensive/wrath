@@ -545,7 +545,7 @@ compile() {
     -d .wrath/bin/"$bproject"/"$bmodule"
     -Xmax-inlines 64
     -Xpluginsdir .wrath/plugin
-    -Xshadow:all
+    -Wshadow:all
     -pagewidth "$pageWidth"
     -J-Xss1536K
     -J--enable-preview
