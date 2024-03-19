@@ -545,20 +545,20 @@ compile() {
     -d .wrath/bin/"$bproject"/"$bmodule"
     -Xmax-inlines 64
     -Xpluginsdir .wrath/plugin
-    -Xlint:private-shadow
-    -Xlint:type-parameter-shadow
+    -Xshadow:all
     -pagewidth "$pageWidth"
     -J-Xss1536K
     -J--enable-preview
     -J-Xss2m
     -new-syntax
     -feature
+    -deprecation
     -source future
     -Wunused:imports
     -Wimplausible-patterns
     -Yrequire-targetName
     -Ysafe-init
-    -deprecation
+    -Ycc-new
     -Yexplicit-nulls
     -Ycheck-all-patmat
     -language:experimental.clauseInterleaving
