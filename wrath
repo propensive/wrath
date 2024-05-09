@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 #   Wrath, version 0.3.0. Copyright 2023 Jon Pretty, Propensive OÜ.
 #
@@ -347,7 +347,7 @@ package() {
   for include in "$dir"/*
   do
     find "$include" -print0 | while IFS= read -r -d '' item
-    do touch -d 2000-01-01 "$item"
+    do touch -d 2000-01-01 "$item" 2>/dev/null || touch -t 200001010000 "$item"
     done
     args+=(-C "${include%/*}" "${include##*/}")
   done
